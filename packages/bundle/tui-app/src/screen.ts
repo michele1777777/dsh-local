@@ -7,6 +7,7 @@ import { activeLine, cellWidth, wrapEditor, type VisualLine } from './layout.ts'
 import type { PendingApproval, PendingQuestion } from './interaction.ts'
 import type { ChatState, Picker, PickerRow } from './store.ts'
 import { activity, contextReading, duration, goalPhase, nonnegative, record, sessionIndicators, speedReading, workElapsed } from './metrics.ts'
+import { layaCutting, layaMark } from './laya.ts'
 import { permissionAuditLabel } from './permission-audit.ts'
 import { codeBlocks } from './code-blocks.ts'
 import { COPY_LABEL, markdownRows } from './markdown-layout.ts'
@@ -54,103 +55,9 @@ export interface QuestionDraft { index: number; optionIndex: number; selected: s
 export const questionDraft = (): QuestionDraft => ({ index: 0, optionIndex: 0, selected: [], custom: { text: '', cursor: 0 }, customMode: false })
 /** Braille spinner frames, one cell each. */
 export const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const
-const LAYA_TONES = ['accent', 'success', 'warning', 'accent', 'reasoning'] as const
-
-/**
- * Pixel snake with a travelling body wave, eye and forked tongue.
- * @param tick - shared animation counter; zero holds the resting pose.
- * @returns twelve terminal cells, keeping the footer width fixed.
- */
-export function layaPixels(tick: number): Span[] {
-  const headTop = Math.sin((9 + tick) * Math.PI / 3) > 0 ? 1 : 0
-  const cells: Span[] = []
-  for (let cell = 0; cell < 12; cell += 1) {
-    let bits = 0
-    for (const [dy, line] of BRAILLE_BITS.entries()) for (const [dx, bit] of line.entries()) {
-      const x = cell * 2 + dx
-      const center = 1.5 + Math.sin((x / 2 + tick) * Math.PI / 3)
-      const body = x < 19 && Math.abs(dy - center) < (x < 3 ? 0.6 : 1)
-      const head = x >= 19 && x <= 21 && dy >= headTop && dy <= headTop + 2
-        && !(x === 20 && dy === headTop)
-      const tongue = x === 22 ? dy === headTop + 1 : x === 23 && (dy === headTop || dy === headTop + 2)
-      if (body || head || tongue) bits |= bit
-    }
-    cells.push(span(String.fromCodePoint(0x2800 + bits),
-      cell === 11 ? 'warning' : LAYA_TONES[(cell + Math.floor(tick / 2)) % LAYA_TONES.length]))
-  }
-  return cells
-}
-
-const LOGO_WIDTH = 56, LOGO_HEIGHT = 40
 const BRAILLE_BITS = [[0x01, 0x08], [0x02, 0x10], [0x04, 0x20], [0x40, 0x80]] as const
-const LOGO_TONES = ['text', 'command', 'brand', 'muted'] as const
-type LogoTone = typeof LOGO_TONES[number]
-const BOB_TICKS = 40, TAIL_TICKS = 24, SPOUT_TICKS = 56, SHIMMER_TICKS = 90
-
-function segment(px: number, py: number, ax: number, ay: number, bx: number, by: number): { distance: number; t: number } {
-  const vx = bx - ax, vy = by - ay
-  const t = Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / (vx * vx + vy * vy)))
-  return { distance: Math.hypot(px - ax - t * vx, py - ay - t * vy), t }
-}
-
-function whalePixel(x: number, y: number, tip: { x: number; y: number }, swing: number): boolean {
-  if ((x === 9 || x === 10) && (y === 22 || y === 23)) return false
-  const dx = x - 24, back = Math.max(0, dx / 21)
-  const nx = dx / 21, ny = (y - (25 - 5 * back * back)) / (8.5 * (1 - 0.55 * back))
-  if (nx * nx + ny * ny <= 1) return true
-  const stalk = segment(x, y, 40, 21, tip.x, tip.y)
-  if (stalk.distance <= 2.2 - stalk.t) return true
-  const left = segment(x, y, tip.x, tip.y, tip.x - 6, tip.y - 3 + swing * 2)
-  const right = segment(x, y, tip.x, tip.y, tip.x + 7, tip.y - 5 - swing * 2)
-  return left.distance <= 1.6 - left.t * 1.1 || right.distance <= 1.6 - right.t * 1.1
-}
-
-/**
- * The DeepSeek whale drawn as a lattice of braille dots, for the empty
- * conversation. Lit pixels alternate like a checkerboard so every dot stands
- * apart. Frames advance with `tick`: the whale bobs, its tail strokes, a
- * spout rises from the blowhole, a light sweep crosses the body, and a wave
- * runs underneath. Frame 0 is the still image.
- * @param tick - animation frame counter.
- * @returns equal-width rows: back in the brand tone, belly and water in the command tone,
- *   the sweep in the text tone, and the wave muted.
- */
-export function deepseekLogo(tick = 0): Row[] {
-  const pixels: (LogoTone | undefined)[][] = Array.from({ length: LOGO_HEIGHT }, () => Array<LogoTone | undefined>(LOGO_WIDTH))
-  const put = (x: number, y: number, tone: LogoTone): void => {
-    const line = pixels[y]
-    if (line === undefined || x < 0 || x >= LOGO_WIDTH) return
-    const current = line[x]
-    if (current === undefined || LOGO_TONES.indexOf(tone) < LOGO_TONES.indexOf(current)) line[x] = tone
-  }
-  const bob = Math.round(Math.sin(tick * 2 * Math.PI / BOB_TICKS))
-  const swing = Math.sin(tick * 2 * Math.PI / TAIL_TICKS)
-  const tip = { x: 45 + swing * 1.5, y: 10 + swing }
-  const sweep = tick === 0 ? -LOGO_WIDTH : (tick % SHIMMER_TICKS) - 30
-  for (let y = 0; y < LOGO_HEIGHT; y += 1) {
-    for (let x = (y + bob) % 2; x < LOGO_WIDTH; x += 2) {
-      const local = y - bob
-      if (!whalePixel(x, local, tip, swing)) continue
-      const glint = Math.abs(x - local * 0.5 - sweep) < 2
-      put(x, y, glint ? 'text' : x < 34 && local > 27 - (x - 4) * 0.12 ? 'command' : 'brand')
-    }
-  }
-  const age = tick % SPOUT_TICKS
-  if (tick > 0 && age < 26) {
-    for (let drop = 0; drop < 9; drop += 1) {
-      const flight = age - drop * 1.2
-      if (flight < 0 || flight > 14) continue
-      const angle = (drop % 2 === 0 ? 1 : -1) * (drop / 9) * 0.9
-      const x = Math.round(17 + Math.sin(angle) * 1.1 * flight)
-      const y = Math.round(16 + bob - Math.cos(angle) * 1.9 * flight + 0.13 * flight * flight)
-      if (y < 16 + bob) put(x, y, 'command')
-    }
-  }
-  for (let x = 0; x < LOGO_WIDTH; x += 2) {
-    put(x, LOGO_HEIGHT - 2 + Math.round(Math.sin((x - tick) / 3)), 'muted')
-  }
-  return brailleRows(pixels)
-}
+const BRAILLE_TONES = ['text', 'command', 'brand', 'muted'] as const
+type BrailleTone = typeof BRAILLE_TONES[number]
 
 // The thinking whale, drawn by hand at braille-dot resolution: 28 × 16 dots in fourteen cells by four
 // rows. A braille cell shows one colour, so every part sits on whole cell rows: spout and flukes on the top
@@ -175,15 +82,15 @@ const MINI_TONES = { b: 'brand', w: 'text' } as const
 const MINI_SPOUT_TICKS = 50, MINI_TAIL_TICKS = 8
 
 /**
- * The small whale beside the latest Thinking label: its flukes beat, a spout rises from the blowhole now and
+ * The small whale beside the Waiting for model label: its flukes beat, a spout rises from the blowhole now and
  * then, and the sea runs beneath it. Frame 0 is the still pose.
  * @param tick - shared 100 ms animation tick.
  * @returns four rows of fourteen terminal cells with a fixed layout footprint.
  */
 export function thinkingWhale(tick = 0): Row[] {
   const width = MINI_BODY[0].length
-  const pixels: (LogoTone | undefined)[][] = Array.from({ length: 16 }, () => Array<LogoTone | undefined>(width))
-  const put = (x: number, y: number, tone: LogoTone): void => {
+  const pixels: (BrailleTone | undefined)[][] = Array.from({ length: 16 }, () => Array<BrailleTone | undefined>(width))
+  const put = (x: number, y: number, tone: BrailleTone): void => {
     const line = pixels[y]
     if (line !== undefined && x >= 0 && x < width) line[x] = tone
   }
@@ -213,18 +120,18 @@ export function thinkingWhale(tick = 0): Row[] {
   return brailleRows(pixels)
 }
 
-function brailleRows(pixels: readonly (readonly (LogoTone | undefined)[])[]): Row[] {
+function brailleRows(pixels: readonly (readonly (BrailleTone | undefined)[])[]): Row[] {
   const rows: Row[] = []
   for (let top = 0; top < pixels.length; top += 4) {
     const spans: Span[] = []
     for (let left = 0; left < (pixels[top]?.length ?? 0); left += 2) {
-      let bits = 0, tone: LogoTone | undefined
+      let bits = 0, tone: BrailleTone | undefined
       for (const [dy, line] of BRAILLE_BITS.entries()) {
         for (const [dx, bit] of line.entries()) {
           const value = pixels[top + dy]?.[left + dx]
           if (value === undefined) continue
           bits |= bit
-          if (tone === undefined || LOGO_TONES.indexOf(value) < LOGO_TONES.indexOf(tone)) tone = value
+          if (tone === undefined || BRAILLE_TONES.indexOf(value) < BRAILLE_TONES.indexOf(tone)) tone = value
         }
       }
       const text = bits === 0 ? ' ' : String.fromCodePoint(0x2800 + bits)
@@ -295,15 +202,17 @@ interface StatusEntry { spans: Span[]; keep: number; side: 'left' | 'right'; joi
  * @param tick - spinner frame counter.
  * @param now - current time in milliseconds, for the work timer.
  * @param keys - offer the `? keys` control; panels and pickers carry their own keys instead.
+ * @param layaElapsedMs - local cutting time of a running Laya pass, which moves the mantis mark before its label; motion off
+ *   holds the mark still.
  * @returns the status row.
  */
-export function statusRow(state: ChatState, width: number, tick: number, now: number, keys = true): Row {
+export function statusRow(state: ChatState, width: number, tick: number, now: number, keys = true, layaElapsedMs = 0): Row {
   const working = state.status === 'running' || state.busy !== undefined || state.transcript.compacting || state.transcript.layaPruning === true || (state.reviewingApprovals ?? 0) > 0
   const attention = state.pending.length > 0
   const tone = attention ? 'warning' : working ? 'accent' : 'footer'
   const label = activity(state)
   const entries: StatusEntry[] = [{ side: 'left', keep: Infinity, spans: state.transcript.layaPruning === true
-    ? [...layaPixels(state.motion === false ? 0 : tick), span(` ${label}`, 'accent', true)]
+    ? [...layaMark(layaCutting(state.transcript.layaPhase), state.motion === false ? 0 : layaElapsedMs), span(` ${label}`, 'accent', true)]
     : [span(`${working ? SPINNER[tick % SPINNER.length] : attention ? '!' : '●'} `, tone, true), span(label, 'text', attention)] }]
   const effort = state.selection.reasoningEffort
   entries.push({ side: 'left', keep: 20, spans: [span(`${state.selection.provider}/${state.selection.model}${effort === undefined ? '' : ` ${effort}`}`, 'muted')] })

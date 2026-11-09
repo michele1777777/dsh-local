@@ -81,3 +81,41 @@ test('Ink decodes Ctrl+Enter separately from Enter in the extended keyboard prot
   assert.equal(key.name, 'return'); assert.equal(key.ctrl, true)
   assert.equal(parseKeypress('\r').ctrl, false)
 })
+
+const { WhaleAnimations, WHALE_ASSETS } = await import('../src/whale.ts')
+const whales = new WhaleAnimations(WHALE_ASSETS, error => { throw error })
+for (const columns of [60, 80, 120, 232]) test(`real Ink paints the Thinking scene and a welcome scene inside ${columns} columns`, () => {
+  const width = columns - 1
+  const item = { kind: 'assistant', id: 'live', reasoning: 'Looking at the code.', text: '', settled: false, reasoningStartedAt: 0 }
+  const space = { columns: width - 3, rows: 21 }
+  const thinking = itemRows(item, { width, expanded: false, overrides: {}, tick: 37, now: 4000, scene: { whales, space } })
+  const welcome = whales.scene(space, width, 3700)
+  for (const rows of [thinking, welcome]) {
+    const painted = safeText(renderToString(createElement(Screen, { rows, width, theme: 'dark' }), { columns }))
+    assert.match(painted, /[▀-▟]/u)
+    assert.equal(painted.split('\n').length, rows.length)
+    assert.ok(painted.split('\n').every(line => widthOf(line) <= width))
+  }
+})
+
+const { LayaAnimations, LAYA_ASSETS, layaMark } = await import('../src/laya.ts')
+const { layaPassRows } = await import('../src/document.ts')
+const { palette } = await import('../src/theme.ts')
+const laya = new LayaAnimations(LAYA_ASSETS, error => { throw error })
+for (const columns of [60, 80, 120]) for (const theme of ['dark', 'light', 'mono']) test(`real Ink paints the Laya box and mark inside ${columns} columns in the ${theme} theme`, () => {
+  const width = columns - 1
+  for (const phase of ['prune', 'restore']) {
+    const rows = [...layaPassRows({ phase, elapsedMs: 1300 }, { width, tick: 13, scene: { laya, space: { columns: width - 3, rows: 11 } } }),
+      row(...layaMark(true, 1300))]
+    const painted = safeText(renderToString(createElement(Screen, { rows, width, theme }), { columns }))
+    assert.match(painted, /[▀-▟]/u)
+    assert.equal(painted.split('\n').length, rows.length)
+    assert.ok(painted.split('\n').every(line => widthOf(line) <= width))
+    // Every mantis cell carries a theme tone: coloured in dark and light, the terminal default in mono.
+    const colours = palette(theme)
+    for (const part of rows.flatMap(line => line.spans)) {
+      assert.ok(Object.hasOwn(colours, part.tone ?? 'text'), part.tone)
+      if (/[⠁-⣿▀-▟]/u.test(part.text) && part.tone !== 'text') assert.equal(colours[part.tone] === undefined, theme === 'mono', `${theme} ${part.tone}`)
+    }
+  }
+})

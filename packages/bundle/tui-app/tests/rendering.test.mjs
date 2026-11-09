@@ -179,8 +179,6 @@ test('the composer paints a draft selection inverse, separately from the cursor'
   assert.equal(inverse, 'the ')
 })
 
-const { deepseekLogo } = await import('../src/screen.ts')
-
 test('slash commands in the conversation use their own light-blue tone', () => {
   const rows = itemRows({ kind: 'command', id: 'c1', name: 'goal', args: ' build Tetris', settled: true }, { width: 60, expanded: false, overrides: {} })
   const command = rows.flatMap(value => value.spans).filter(part => part.text.includes('/goal'))
@@ -188,28 +186,6 @@ test('slash commands in the conversation use their own light-blue tone', () => {
   assert.equal(palette('dark').command, '#5fafff')
   assert.notEqual(palette('dark').command, palette('dark').accent)
   assert.equal(palette('mono').command, undefined)
-})
-test('the DeepSeek whale is drawn in separate braille dots, still at frame 0', () => {
-  const logo = deepseekLogo()
-  assert.equal(logo.length, 10)
-  const widths = logo.map(value => widthOf(textOfRow(value)))
-  assert.ok(widths.every(width => width === widths[0] && width <= 28))
-  const text = logo.map(textOfRow).join('')
-  assert.doesNotMatch(text, /[▀▄█⣿]/u)
-  assert.match(text, /[\u2801-\u28fe]/u)
-  const tones = new Set(logo.flatMap(value => value.spans).filter(part => part.text.trim() !== '').map(part => part.tone))
-  assert.ok(tones.has('brand') && tones.has('command') && tones.has('muted'))
-  assert.ok(!tones.has('text'))
-  assert.deepEqual(deepseekLogo(0).map(textOfRow), logo.map(textOfRow))
-})
-test('the whale animates: frames differ, keep their size, and the spout and sweep appear', () => {
-  const frames = Array.from({ length: 60 }, (_, tick) => deepseekLogo(tick).map(textOfRow))
-  assert.ok(new Set(frames.map(frame => frame.join('\n'))).size > 30)
-  assert.ok(frames.every(frame => frame.length === 10 && frame.every(line => widthOf(line) === widthOf(frames[0][0]))))
-  const spout = deepseekLogo(10).slice(0, 4).flatMap(value => value.spans).filter(part => part.tone === 'command' && part.text.trim() !== '')
-  assert.ok(spout.length > 0)
-  const sweep = Array.from({ length: 90 }, (_, tick) => deepseekLogo(tick)).some(frame => frame.some(value => value.spans.some(part => part.tone === 'text' && part.text.trim() !== '')))
-  assert.ok(sweep)
 })
 test('a tool heading colours only its category tag; the title and arguments stay plain, with no filled badge', () => {
   const rows = itemRows(tool(), opts(80, true))
@@ -227,14 +203,16 @@ test('user-invocable skills join the slash palette, and a command of the same na
   assert.equal(merged.find(entry => entry.name === 'plan')?.origin, 'registry')
 })
 
-const { thinkingWhale, layaPixels } = await import('../src/screen.ts')
-const { thinkingSea, SEA_ROWS, SEA_MIN_CELLS } = await import('../src/sea.ts')
+const { thinkingWhale } = await import('../src/screen.ts')
+const { layaMark } = await import('../src/laya.ts')
+const { WhaleAnimations, WHALE_ASSETS } = await import('../src/whale.ts')
+const whales = new WhaleAnimations(WHALE_ASSETS, error => { throw error })
 const { titleSpinner, terminalTitle } = await import('../src/terminal-signals.ts')
 test('live reasoning keeps its whale inside the frame and settled reasoning keeps its duration', () => {
   const renderer = createDocumentRenderer()
   const old = {kind:'assistant', id:'old', reasoning:'earlier', text:'', settled:true, reasoningStartedAt:1000, reasoningEndedAt:4500}
   const live = {kind:'assistant', id:'new', reasoning:'first\nsecond', text:'', settled:false, reasoningStartedAt:10000}
-  const options = {...opts(100), tick:8, now:17000}
+  const options = {...opts(100), tick:8, now:17000, scene:{whales, space:{columns:96, rows:12}}}
   renderer.render([old],options)
   const rows = renderer.render([old,live],options)
   // A settled thought folds to one row, in the tool-row columns, with its duration on the right.
@@ -246,41 +224,19 @@ test('live reasoning keeps its whale inside the frame and settled reasoning keep
   assert.match(text(rows.filter(r=>r.itemId==='new')), /[⎻⎼]/u)
   assert.doesNotMatch(text(rows.filter(r=>r.itemId==='new')), /[╭╮╰╯│]/u)
   assert.equal(rows.filter(r=>r.itemId==='new' && !r.heading && !textOfRow(r).includes('Show details') && textOfRow(r).trim()!=='').length>0,true)
-  assert.ok(rows.filter(r=>r.itemId==='new').some(r=>r.spans.some(p=>p.tone==='brand' && /[\u2801-\u28ff]/u.test(p.text))))
+  assert.ok(rows.filter(r=>r.itemId==='new').some(r=>r.spans.some(p=>p.tone==='brand' && /[\u2580-\u259f\u2801-\u28ff]/u.test(p.text))))
   assert.match(text(renderer.render([old,live],{...options,now:18000})), /Thinking… · 8s/)
   live.reasoningEndedAt=18500;live.settled=true
   const done=renderer.render([old,live],{...options,now:30000})
   // Settled, the live box becomes one row joined to the thought before it, without the waves or the sea.
   assert.deepEqual(done.filter(r=>r.itemId==='new').map(textOfRow), [`  ◦ Thought · 2 lines${' '.repeat(57)}8.5s`])
-  assert.doesNotMatch(text(done), /[⎺⎻⎼⎽⎸⎹╭╮╰╯\u2801-\u28ff]/u)
+  assert.doesNotMatch(text(done), /[⎺⎻⎼⎽⎸⎹╭╮╰╯\u2580-\u259f\u2801-\u28ff]/u)
   assert.deepEqual(renderer.render([old,live],{...options,now:60000,tick:20}),done)
   // Opened, it is the straight, closed card with the reasoning inside.
   const open=renderer.render([old,live],{...options,now:30000,overrides:{'reasoning:new':true}})
   assert.match(text(open.filter(r=>r.itemId==='new')), /╭─ ▾ Thought · 8s · 2 lines ─+╮[\s\S]*first[\s\S]*second/u)
   // Every cell of the heading after the margin toggles the reasoning.
   assert.ok(done.filter(r=>r.itemId==='new' && r.heading).every(r=>r.spans.slice(1).every(p=>p.action?.kind==='toggle-reasoning')))
-})
-test('the thinking sea keeps its footprint while the whale floats, swims, breaches, dives out of sight and splashes', () => {
-  const cells=60, frames=Array.from({length:240},(_,tick)=>thinkingSea(tick,cells))
-  assert.ok(frames.every(rows=>rows.length===SEA_ROWS && rows.every(r=>widthOf(textOfRow(r))===cells)))
-  assert.ok(thinkingSea(0,SEA_MIN_CELLS-6).every(r=>widthOf(textOfRow(r))===SEA_MIN_CELLS))
-  const braille=/[\u2801-\u28ff]/u
-  const tones=rows=>new Set(rows.flatMap(r=>r.spans.filter(p=>braille.test(p.text)).map(p=>p.tone)))
-  // Floating and swimming, the whale shows its blue body and its white belly band.
-  assert.ok(frames.slice(1,40).every(rows=>tones(rows).has('brand') && tones(rows).has('text')))
-  // Under water the whale disappears completely.
-  assert.ok(frames.some((rows,tick)=>tick>0 && !tones(rows).has('brand')))
-  // Landing throws light-blue water round the body.
-  assert.ok(frames.some(rows=>rows.filter(r=>r.spans.some(p=>p.tone==='command' && braille.test(p.text))).length>=4))
-  // Light glints on the back are horizontal: runs of at least two cells, never a single upright cell.
-  // While swimming, past the spout, every light-blue mark is a glint on the back.
-  const glints=frames.slice(20,60).flatMap(rows=>rows.flatMap(r=>r.spans.filter(p=>p.tone==='command' && braille.test(p.text))))
-  assert.ok(glints.length>0 && glints.every(p=>[...p.text].length>=2), glints.map(p=>p.text).join(' '))
-  // Swimming is smooth: the body's centre never jumps between frames.
-  const BITS=[[0x01,0,0],[0x02,0,1],[0x04,0,2],[0x08,1,0],[0x10,1,1],[0x20,1,2],[0x40,0,3],[0x80,1,3]]
-  const centre=rows=>{let x=0,y=0,n=0;rows.forEach((r,ry)=>{let column=0;for(const p of r.spans)for(const ch of p.text){if(p.tone==='brand'){const bits=ch.codePointAt(0)-0x2800;for(const [bit,dx,dy] of BITS)if(bits&bit){x+=column*2+dx;y+=ry*4+dy;n++}}column++}});return {x:x/n,y:y/n,n}}
-  for(let tick=2;tick<40;tick++){const a=centre(frames[tick-1]),b=centre(frames[tick]);assert.ok(Math.abs(b.y-a.y)<1.2 && Math.abs(b.x-a.x)<3,`tick ${tick}: ${a.x},${a.y} -> ${b.x},${b.y}`)}
-  assert.notEqual(text(thinkingSea(0,cells)),text(thinkingSea(5,cells)))
 })
 test('the terminal title carries a turning dot spinner only while a turn runs', () => {
   const running={sessionId:'one',title:'Auth',running:true}
@@ -305,8 +261,8 @@ test('reasoning decorations wrap without losing controls and keep a fixed frame 
   // A braille cell has one colour: the whale carries a white belly, and the sea row stays grey.
   assert.ok(thinkingWhale(0).some(r=>r.spans.some(p=>p.tone==='text' && /[\u2801-\u28ff]/u.test(p.text))))
   assert.ok([0,5,9,30].every(tick=>thinkingWhale(tick)[3].spans.every(p=>p.tone==='muted' || !/[\u2801-\u28ff]/u.test(p.text))))
-  assert.equal(widthOf(textOfRow(row(...layaPixels(0)))),12)
-  assert.notDeepEqual(layaPixels(0),layaPixels(2))
+  assert.equal(widthOf(textOfRow(row(...layaMark(true,0)))),12)
+  assert.notDeepEqual(layaMark(true,0),layaMark(true,200))
 })
 test('the status row freezes Laya motion and shows the work timer only while a turn runs', () => {
   const state=fixture({motion:false,status:'running'})

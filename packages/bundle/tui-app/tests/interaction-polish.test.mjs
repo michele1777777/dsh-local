@@ -305,8 +305,8 @@ test('a drag from the conversation stops above the composer and never copies the
     assert.doesNotMatch(calls.copies[0],/Ready|Enter send|Ask anything/)
   }finally{h.dispose()}
 })
-test('an empty conversation opens with the DeepSeek whale when there is room, and without it when cramped',async()=>{
-  const whale=/[\u2801-\u28fe]{6}/u
+test('an empty conversation opens with the whale scene when there is room, and without it when cramped',async()=>{
+  const whale=/[\u2580-\u259f]{6}/u
   const roomy=setup({},80,30)
   try{assert.match(roomy.h.text(),whale);assert.match(roomy.h.text(),/What are we building\?/)}finally{roomy.h.dispose()}
   const cramped=setup({},80,18)

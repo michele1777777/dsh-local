@@ -1,4 +1,5 @@
 /** Complete, scrollable conversation document. All folding is view-local. */
+import type { LayaPhase } from '@deepseek-ai/dsh-compaction-laya-pruner'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type { AssistantItem, Item, LayaItem, ToolItem } from './transcript.ts'
 import { textOf } from './transcript.ts'
@@ -6,15 +7,17 @@ import { reviewDiff } from './diff.ts'
 import { diffRows } from './diff-layout.ts'
 import { codeBlocks } from './code-blocks.ts'
 import { COPY_LABEL, createStreamingMarkdown, createStreamingProse, markdownRows, type StreamingLayout } from './markdown-layout.ts'
-import { duration } from './metrics.ts'
+import { duration, layaPhaseLabel } from './metrics.ts'
 import { fitRow, indentRows, row, span, textOfRow, widthOf, wrapProse, wrapRow, type Row, type Span } from './rich-text.ts'
 import { highlight, languageOf } from './syntax.ts'
 import { displayTree, jsonText, safeText } from './terminal.ts'
 import { toolBadge } from './tool-format.ts'
 import type { UiAction } from './actions.ts'
 import type { Tone } from './theme.ts'
-import { SEA_MIN_CELLS, thinkingSea } from './sea.ts'
 import { thinkingWhale } from './screen.ts'
+import { ANIMATION_TICK_MS, type SceneSpace } from './animation.ts'
+import { layaCutting, type LayaAnimations } from './laya.ts'
+import type { WhaleAnimations } from './whale.ts'
 
 /** Layout inputs for the conversation document; `overrides` maps item ids (and `reasoning:<id>`) to per-item expansion. */
 export interface DocumentOptions {
@@ -27,6 +30,8 @@ export interface DocumentOptions {
   now?: number
   /** Only the latest reasoning segment carries the whale decoration. */
   thinkingDecoration?: boolean
+  /** The live Thinking box's whale scene and the cells it may take; without it the box has no scene. */
+  scene?: { readonly whales: WhaleAnimations; readonly space: SceneSpace }
   /** Reuses completed rows of a growing message; a full layout is used without it. */
   streaming?: { markdown: StreamingLayout; prose: StreamingLayout }
 }
@@ -53,14 +58,18 @@ interface FrameStyle {
   wave?: number
   /** Only the top and bottom edges: no sides, and the edges run across the corners. */
   open?: boolean
+  /** Rows exactly as wide as an open box, drawn edge to edge above the body. */
+  scene?: readonly Row[]
+  /** The closing edge is a plain rule, without the Show details control. */
+  plain?: boolean
 }
 
 /** One bounded disclosure: the entire header and closing edge are click targets. */
 function disclosure(
-  title: Row, body: readonly Row[], width: number, tone: Tone, action: UiAction, expanded: boolean, style: FrameStyle = {},
+  title: Row, body: readonly Row[], width: number, tone: Tone, action: UiAction | undefined, expanded: boolean, style: FrameStyle = {},
 ): Row[] {
-  const { wave, open = false } = style
-  const clickable = (value: Row): Row => ({ ...value, spans: value.spans.map(part => ({ ...part, action })) })
+  const { wave, open = false, scene = [], plain = false } = style
+  const clickable = (value: Row): Row => action === undefined ? value : { ...value, spans: value.spans.map(part => ({ ...part, action })) }
   if (width < 8) return [clickable(fitRow(title, width)), ...body.flatMap(value => wrapRow(value, width))]
   const inner = width - 4
   const lines = body.flatMap(value => wrapRow(value, inner))
@@ -72,10 +81,11 @@ function disclosure(
   }
   const rule = (glyphs: readonly string[], from: number, count: number, at: (x: number) => number): string =>
     Array.from({ length: Math.max(0, count) }, (_, index) => glyph(glyphs, at(from + index), '─')).join('')
-  const top = (x: number): number => x, bottom = (x: number): number => 2 * width + lines.length - x
-  const edge = (caption: Row, glyphs: readonly string[], at: (x: number) => number, left: string, right: string): Row => {
-    const fill = width - 5 - widthOf(textOfRow(caption))
+  const top = (x: number): number => x, bottom = (x: number): number => 2 * width + scene.length + lines.length - x
+  const edge = (caption: Row | undefined, glyphs: readonly string[], at: (x: number) => number, left: string, right: string): Row => {
     const corner = (straight: string, x: number): string => open ? glyph(glyphs, at(x), '─') : straight
+    if (caption === undefined) return clickable(row(span(`${corner(left, 0)}${rule(glyphs, 1, width - 2, at)}${corner(right, width - 1)}`, tone)))
+    const fill = width - 5 - widthOf(textOfRow(caption))
     return clickable(row(span(`${corner(left, 0)}${rule(glyphs, 1, 1, at)} `, tone), ...caption.spans,
       span(` ${rule(glyphs, width - 1 - fill, fill, at)}${corner(right, width - 1)}`, tone)))
   }
@@ -84,8 +94,8 @@ function disclosure(
     ...line,
     spans: [span(open ? '  ' : '│ ', tone), ...line.spans, span(`${' '.repeat(Math.max(0, inner - widthOf(textOfRow(line))))} ${open ? ' ' : '│'}`, tone)],
   }))
-  const label = fitRow(row(span(expanded ? '▾ Hide details' : '› Show details', 'muted')), width - 5)
-  return [heading, ...content, edge(label, WAVE_BOTTOM, bottom, '╰', '╯')]
+  const label = plain ? undefined : fitRow(row(span(expanded ? '▾ Hide details' : '› Show details', 'muted')), width - 5)
+  return [heading, ...scene, ...content, edge(label, WAVE_BOTTOM, bottom, '╰', '╯')]
 }
 
 function field(label: string, value: string, width: number): Row[] {
@@ -297,14 +307,14 @@ export function itemRows(unsafe: Item, options: DocumentOptions): Row[] {
       const inner = Math.max(1, content - 4)
       const body: Row[] = []
       const tick = options.tick ?? 0
-      if (activelyThinking && options.thinkingDecoration !== false && inner >= 14) {
-        // The whole box is the whale's sea; a box too narrow for it keeps the small side-view whale.
-        body.push(...inner >= SEA_MIN_CELLS ? thinkingSea(tick, inner) : thinkingWhale(tick))
-      }
+      // The open box is the whale's sea: the scene spans it edge to edge, and a box too small for every variant has none.
+      const scene = activelyThinking && options.thinkingDecoration !== false && options.scene !== undefined
+        ? options.scene.whales.scene(options.scene.space, content, tick * ANIMATION_TICK_MS) : undefined
       if (reasoningExpanded) body.push(...(options.streaming?.prose.rows(item.id, item.reasoning, inner)
         ?? wrapProse(row(span(item.reasoning, 'reasoning')), inner)))
       // While thinking the box is open water: only its waving top and bottom edges, no sides.
-      const frame: FrameStyle = activelyThinking ? { open: true, ...tick > 0 ? { wave: tick } : {} } : {}
+      const frame: FrameStyle = activelyThinking
+        ? { open: true, ...tick > 0 ? { wave: tick } : {}, ...scene === undefined ? {} : { scene } } : {}
       rows.push(...indent(disclosure(label, body, content, 'reasoning', toggleAction, reasoningExpanded, frame)))
     }
     if (item.text !== '') {
@@ -379,6 +389,44 @@ export function itemRows(unsafe: Item, options: DocumentOptions): Row[] {
     return { ...value, spans, itemId: item.id, heading }
   })
 }
+/** A running `laya_context_pruner` pass, as the live box shows it. */
+export interface LayaPass {
+  /** The pass's latest reported phase; a pass without phase is cutting. */
+  readonly phase: LayaPhase | undefined
+  /** Local cutting time in milliseconds, counted from when the pass began cutting; zero holds the first frame. */
+  readonly elapsedMs: number
+}
+
+/** Layout inputs for the live Laya box. */
+export interface LayaPassOptions {
+  /** Width of the conversation. */
+  readonly width: number
+  /** The shared animation tick that moves the wave along the open edges; zero keeps them straight. */
+  readonly tick?: number
+  /** The mantis scenes and the cells a scene may take; without it the box has no scene. */
+  readonly scene?: { readonly laya: LayaAnimations; readonly space: SceneSpace }
+}
+
+/**
+ * The live box of a running Laya pass, drawn after the conversation where a live Thinking box sits: open edges titled with
+ * the real phase label, and between them the mantis scene, cutting in the prune phase and ready in the phases that manage
+ * the model. A box too small for every scene keeps only its edges. It shows no counts; the result row follows the pass.
+ * @param pass - the running pass.
+ * @param options - layout inputs.
+ * @returns a blank row, then the box behind the conversation margin.
+ */
+export function layaPassRows(pass: LayaPass, options: LayaPassOptions): Row[] {
+  const margin = options.width >= MARGIN_MIN_WIDTH ? MARGIN : ''
+  const content = Math.max(1, options.width - margin.length)
+  const cutting = layaCutting(pass.phase)
+  const scene = options.scene?.laya.scene(cutting, options.scene.space, content, pass.elapsedMs)
+  const tick = options.tick ?? 0
+  const title = row(span('▞▚ ', 'success'), span(layaPhaseLabel(pass.phase), 'accent', true))
+  const box = disclosure(title, [], content, 'accent', undefined, false,
+    { open: true, plain: true, ...tick > 0 ? { wave: tick } : {}, ...scene === undefined ? {} : { scene } })
+  return [row(''), ...margin === '' ? box : indentRows(box, margin, options.width)].flatMap(value => wrapRow(value, options.width))
+}
+
 /**
  * Reuse settled row layouts; streaming a token must not re-highlight old files.
  * @returns a renderer whose `render` lays out items through a per-item cache, leaves out the blank row between consecutive
@@ -404,7 +452,8 @@ export function createDocumentRenderer(): { render(items: readonly Item[], optio
         const activeThinking = item.kind === 'assistant' && !item.settled && item.text === '' && item.reasoningEndedAt === undefined
         const decorated = item.id === latestThinking
         const layout: DocumentOptions = { ...options, streaming, thinkingDecoration: decorated }
-        const tickKey = activeThinking ? `${options.tick ?? 0}:${Math.floor((options.now ?? 0) / 1000)}` : 'settled'
+        const space = options.scene?.space
+        const tickKey = activeThinking ? `${options.tick ?? 0}:${Math.floor((options.now ?? 0) / 1000)}:${space?.columns ?? 0}x${space?.rows ?? 0}` : 'settled'
         const key = `${options.width}:${options.overrides[item.id] ?? options.expanded}:${reasoningOverride}:${options.raw === true}:${decorated}:${tickKey}`
         let entry = cache.get(item.id)
         const keys = Object.keys(item) as (keyof Item)[]
