@@ -1,4 +1,6 @@
 /** Read only the same host projections exposed to Web. No token estimator. */
+import type { LayaPhase } from '@deepseek-ai/dsh-compaction-laya-pruner'
+import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type { UiAction } from './actions.ts'
 import type { ChatState } from './store.ts'
 import { tokens } from './terminal.ts'
@@ -56,6 +58,21 @@ export function duration(ms: number): string {
   return `${Math.floor(ms / 60_000)}m ${Math.floor(ms % 60_000 / 1000)}s`
 }
 /**
+ * What a running `laya_context_pruner` pass is doing, for the status line and the live mantis box.
+ * @param phase - the pass's latest reported phase; a pass without phase is pruning.
+ * @returns the phase label.
+ */
+export function layaPhaseLabel(phase: LayaPhase | undefined): string {
+  switch (phase) {
+    case 'release': return 'DS4 · freeing cache memory'
+    case 'start': return 'Starting Laya'
+    case 'stop': return 'Stopping Laya'
+    case 'restore': return 'DS4 · restoring cache capacity'
+    case 'prune': case undefined: return 'laya_context_pruner · pruning context'
+    default: return assertNever(phase, 'Laya phase')
+  }
+}
+/**
  * The status-line activity label; pending interactions outrank compaction, busy text and turn progress. Background jobs are
  * not part of it: the status line counts them separately.
  * @param state - chat state.
@@ -66,15 +83,7 @@ export function activity(state: ChatState): string {
   if (state.pending[0]?.kind === 'approval') return 'Permission required'
   if (state.pending[0]?.kind === 'question') return 'Your answer is needed'
   if ((state.reviewingApprovals ?? 0) > 0) return `Reviewing permission · ${state.reviewingApprovals} isolated request(s)`
-  if (state.transcript.layaPruning === true) {
-    switch (state.transcript.layaPhase) {
-      case 'release': return 'DS4 · freeing cache memory'
-      case 'start': return 'Starting Laya'
-      case 'stop': return 'Stopping Laya'
-      case 'restore': return 'DS4 · restoring cache capacity'
-      case 'prune': case undefined: return 'laya_context_pruner · pruning context'
-    }
-  }
+  if (state.transcript.layaPruning === true) return layaPhaseLabel(state.transcript.layaPhase)
   if (state.transcript.compacting) return 'Compacting context'
   if (state.busy !== undefined) return state.busy
   if (state.status !== 'running') return 'Ready'

@@ -38,6 +38,7 @@
     "node_modules/@deepseek-ai/dsh-web-app/presets/cordis.patch.yml",
     "lib/rolldown-runtime-*.js",
     "lib/devtools-*.js",
+    "assets",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",

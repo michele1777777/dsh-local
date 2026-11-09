@@ -15,7 +15,7 @@ import type { CopyResult } from './clipboard.ts'
 import { codeBlocks } from './code-blocks.ts'
 import { isNamingCommand, PALETTE_TABS, paletteView, type CommandEntry, type PaletteTab } from './commands.ts'
 import { Screen } from './components.tsx'
-import { createDocumentRenderer, searchRows } from './document.ts'
+import { createDocumentRenderer, layaPassRows, searchRows } from './document.ts'
 import { emptyUndo, redo, remember, undo } from './editor-history.ts'
 import { edit, editorAtEnd, emptyEditor, insertText, moveLine, selectionOf, type EditorState } from './editor.ts'
 import { moveVisual } from './layout.ts'
@@ -25,7 +25,7 @@ import { LEGACY_BYTES, MOUSE_OFF, MOUSE_ON, parseMouse, WHEEL_ROWS } from './mou
 import { hitTest } from './panes.ts'
 import { addBlock, blockWithText, expandPastes, placeholder, placeholderAt, referenced, shouldCollapse, type PastedBlock } from './paste.ts'
 import type { SubmitGesture } from './queue.ts'
-import { fitRow, relabel, row, rule, span, wrapRow, type Row } from './rich-text.ts'
+import { fitRow, indentRows, relabel, row, rule, span, type Row } from './rich-text.ts'
 import {
   approvalControls,
   approvalDetails,
@@ -33,7 +33,6 @@ import {
   composerOffsetAt,
   composerRows,
   composerView,
-  deepseekLogo,
   fitScreen,
   goalControls,
   headerRow,
@@ -60,8 +59,20 @@ import type { ChatState, Panel, PickerRow, Store } from './store.ts'
 import type { TerminalSize } from './terminal-guard.ts'
 import { attention, FOCUS_OFF, FOCUS_ON, notification, terminalTitle, TITLE_POP, TITLE_PUSH, type SignalSnapshot } from './terminal-signals.ts'
 import { anchorAt, promptAbove, promptAnchor, promptBelow, promptMarks, reveal, scrollBy, topOf, type Anchor } from './viewport.ts'
+import { ANIMATION_TICK_MS, SCENE_FRAME_COLUMNS } from './animation.ts'
+import { layaCutting, type LayaAnimations } from './laya.ts'
+import type { WhaleAnimations } from './whale.ts'
 
-const LOGO_MIN_WIDTH = 30, LOGO_MIN_HEIGHT = 20
+/**
+ * Rows a Thinking box or live Laya box scene leaves to the rest of the screen: the box's two edges, and ten for the header,
+ * the rest of the conversation, the composer and the status line.
+ */
+const THINKING_SCENE_RESERVE = 12
+/**
+ * Columns a whale or mantis scene may take in a frame `width` cells wide: the frame is one column narrower than the terminal, and
+ * each variant needs a terminal {@link SCENE_FRAME_COLUMNS} wider than its scene.
+ */
+const sceneColumns = (width: number): number => width + 1 - SCENE_FRAME_COLUMNS
 /**
  * One resize gesture delivers many widths, and laying out a long transcript costs far more than a frame:
  * until the width settles, the conversation keeps its last layout, clipped or padded to the live frame.
@@ -103,7 +114,15 @@ export interface Controller {
   previewSession?(id: string, signal: AbortSignal): Promise<SessionPreview>
 }
 
-export function App({ store, controller, terminal }: { store: Store; controller: Controller; terminal?: TerminalSize }) {
+export function App({ store, controller, terminal, whales, laya }: {
+  store: Store
+  controller: Controller
+  terminal?: TerminalSize
+  /** The whale scenes this screen shows, owned by the caller for the screen's lifetime. */
+  whales: WhaleAnimations
+  /** The mantis scenes shown while Laya prunes, owned by the caller for the screen's lifetime. */
+  laya: LayaAnimations
+}) {
   const state = useSyncExternalStore(store.subscribe, store.getState)
   useEffect(() => {
     if (state.panel !== 'jobs' || state.selectedJob === undefined || controller.followJob === undefined) return
@@ -187,6 +206,12 @@ export function App({ store, controller, terminal }: { store: Store; controller:
 
   const [tick, setTick] = useState(0)
   const [now, setNow] = useState(() => Date.now())
+  // Laya cutting time is local to the pass: ticks since its current cutting phase began, restarted after a managed phase.
+  const layaCut = state.transcript.layaPruning === true && layaCutting(state.transcript.layaPhase) ? state.transcript.layaPruneId ?? '' : undefined
+  const [layaCutStart, setLayaCutStart] = useState<{ key: string; tick: number } | undefined>(undefined)
+  if (layaCut !== layaCutStart?.key) setLayaCutStart(layaCut === undefined ? undefined : { key: layaCut, tick })
+  const layaElapsedMs = layaCut === undefined || layaCutStart === undefined || state.motion === false
+    ? 0 : Math.max(0, tick - layaCutStart.tick) * ANIMATION_TICK_MS
   const [copiedKey, setCopiedKey] = useState<{ key: string; confirmed: boolean } | undefined>(undefined)
   const [selection, setSelection] = useState<(Selection & {
     document?: readonly Row[]
@@ -320,7 +345,7 @@ export function App({ store, controller, terminal }: { store: Store; controller:
     const timer = setInterval(() => {
       setTick(t => t + 1)
       setNow(Date.now())
-    }, 100)
+    }, ANIMATION_TICK_MS)
     return () => { clearInterval(timer) }
   }, [working, state.transcript.items.length])
 
@@ -356,7 +381,15 @@ export function App({ store, controller, terminal }: { store: Store; controller:
       changesOnly: state.panel === 'changes',
       tick: state.motion === false ? 0 : tick,
       now,
+      scene: { whales, space: { columns: sceneColumns(layoutWidth), rows: height - THINKING_SCENE_RESERVE } },
     })
+    // A running Laya pass follows the conversation in its live box; its result row replaces it when the pass ends.
+    if (state.transcript.layaPruning === true && state.panel !== 'changes') {
+      raw.push(...layaPassRows({ phase: state.transcript.layaPhase, elapsedMs: layaElapsedMs }, {
+        width: layoutWidth, tick: state.motion === false ? 0 : tick,
+        scene: { laya, space: { columns: sceneColumns(layoutWidth), rows: height - THINKING_SCENE_RESERVE } },
+      }))
+    }
     return linkRows(raw, state.cwd, state.links !== false).map((r) => {
       const at = copiedKey === undefined ? -1
         : r.spans.findIndex(part => part.action !== undefined && actionKey(part.action) === copiedKey.key)
@@ -367,7 +400,8 @@ export function App({ store, controller, terminal }: { store: Store; controller:
       return relabel(r, at, label, { tone: 'success', bold: true })
     })
   }, [renderer, visibleItems, layoutWidth, expandAll, state.panel, overrides, rawTools, tick,
-    state.motion, state.cwd, state.links, copiedKey, now])
+    state.motion, state.cwd, state.links, copiedKey, now, whales, height, state.transcript.layaPruning, state.transcript.layaPhase,
+    layaElapsedMs, laya])
 
   // Keep the selected document stable while new output arrives or tools collapse.
   const docRows = selection?.document ?? liveDocRows
@@ -418,7 +452,7 @@ export function App({ store, controller, terminal }: { store: Store; controller:
   // Approvals, questions, pickers and in-page panels paint over the conversation and the composer.
   const composerShown = state.pending.length === 0 && state.picker === undefined
     && (state.panel === undefined || state.panel === 'transcript' || state.panel === 'changes')
-  const foot = [statusRow(state, width, tick, now, composerShown)]
+  const foot = [statusRow(state, width, tick, now, composerShown, layaElapsedMs)]
   // The composer, its rules and the status row always fit; waiting notes, the palette and the Keys box share what is left.
   const fixedHeight = header.length + indicatorLines.length + searchBarRows.length + compRows.length + bottomRule.length + foot.length
   const noteRows = composerNotes(state, width).slice(-Math.max(1, height - fixedHeight - 1))
@@ -694,15 +728,15 @@ export function App({ store, controller, terminal }: { store: Store; controller:
     const bodyRows: Row[] = []
 
     if (visibleItems.length === 0) {
-      // The empty conversation opens with the DeepSeek whale when the viewport has room for it.
-      const logoShown = viewportHeight >= LOGO_MIN_HEIGHT && width >= LOGO_MIN_WIDTH
-      const welcome = [
-        ...logoShown ? [row(''), ...deepseekLogo(state.motion === false ? 0 : tick)] : [],
-        row(''),
+      // The empty conversation opens with the largest whale scene the viewport has room for above the welcome text.
+      const text = [row(''), ...indentRows([
         row(span('What are we building?', 'accent', true)),
         row(''),
-        ...wrapRow(row(span('/resume  continue a session    /model  choose a model\n/plan and /goal are provided by your session preset.\n\nYour conversation stays in the shared session log.', 'muted')), width),
-      ]
+        row(span('/resume  continue a session    /model  choose a model\n/plan and /goal are provided by your session preset.\n\nYour conversation stays in the shared session log.', 'muted')),
+      ], '  ', width)]
+      const scene = whales.scene({ columns: sceneColumns(width), rows: viewportHeight - 1 - text.length }, width,
+        (state.motion === false ? 0 : tick) * ANIMATION_TICK_MS)
+      const welcome = [...scene === undefined ? [] : [row(''), ...scene], ...text]
       const slice = welcome.slice(0, viewportHeight)
       bodyRows.push(...slice)
       while (bodyRows.length < viewportHeight) bodyRows.push(row(''))
@@ -741,7 +775,7 @@ export function App({ store, controller, terminal }: { store: Store; controller:
     ], width, height)
   }, [
     state, width, height, approvalAllowed, panelOffset, foot, qDraft, browser, pickerSearch, pickerIndex,
-    allCommands, hasStickyHeader, activePromptMark, visibleItems, marks, tick, docRows, currentTop,
+    allCommands, hasStickyHeader, activePromptMark, visibleItems, marks, tick, docRows, currentTop, whales,
     viewportHeight, searchMode, searchQuery.text, hasScrollBar, linesAboveBottom, header, indicatorLines, selection, effectiveSelection,
     searchBarRows, keyRows, noteRows, compRows, cmdPopupRows, bottomRule,
   ])

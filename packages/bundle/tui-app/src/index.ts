@@ -52,6 +52,9 @@ import { createStore, projectionsAfter, queueOf, type Picker, type Store } from 
 import { addNotice, applyChunk, applyEvent, emptyTranscript, endStream, splitSettled, type Presenters } from './transcript.ts'
 import { themeName } from './theme.ts'
 import { contentSummary, safeText } from './terminal.ts'
+import type { SceneAssetError } from './animation.ts'
+import { LAYA_ASSETS, LayaAnimations } from './laya.ts'
+import { WHALE_ASSETS, WhaleAnimations } from './whale.ts'
 
 export const name = 'tui-runner'
 export const inject = ['agentDefaultModel', 'agents', 'attachments', 'fileUploads', 'sessionController', 'sessionQuery', 'sessionProjections', 'sessions']
@@ -812,9 +815,15 @@ export async function run(ctx: Context, config: Config, io: TuiIo): Promise<void
     })
     const stopResizeInvalidation = claim.onResize(() => { ink?.invalidate() })
     terminalWrite = (value) => { claim.write(value) }
+    // An unusable scene asset is reported while a component renders; writing after the current task keeps the diverted-output
+    // note from updating state inside that render.
+    const reportScene = (error: SceneAssetError): void => {
+      queueMicrotask(() => { process.stderr.write(`dsh: ${safeText(error.message)}\n`) })
+    }
+    const whales = new WhaleAnimations(WHALE_ASSETS, reportScene), laya = new LayaAnimations(LAYA_ASSETS, reportScene)
     // Ink usePaste owns terminal negotiation and restores it on unmount.
     try {
-      ink = render(createElement(App, { store, controller, terminal: claim }),
+      ink = render(createElement(App, { store, controller, terminal: claim, whales, laya }),
         { stdout: claim.stdout, exitOnCtrlC: false, patchConsole: false, alternateScreen: true, maxFps: 60, incrementalRendering: true })
       if (config.task !== undefined && config.pick !== true) await controller.submit(config.task).catch((error: unknown) => {
         store.update((state) => { state.recoveredInput = config.task })
