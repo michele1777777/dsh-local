@@ -1,0 +1,139 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/bundle/tui-app/README.md
+/:
+  en: 853c9f13e35fd9ae
+  zh: f99df5f02a3e2df3
+/deepseek-ai-dsh-tui-app:
+  en: 6a23ca8f9a47405e
+  zh: b64330cf6abe3c84
+/deepseek-ai-dsh-tui-app/summary:
+  en: fc47d6715251b876
+  zh: dab7ff2ee7da1f72
+/deepseek-ai-dsh-tui-app/table-of-contents:
+  en: be891fb659a8395b
+  zh: 3f69556232004630
+/deepseek-ai-dsh-tui-app/use-this-package:
+  en: 48a729d02b7df7f5
+  zh: ecd9e04376416be3
+/deepseek-ai-dsh-tui-app/use-this-package/start-and-resume:
+  en: eed61a386314cc27
+  zh: 9dfba44c28f202a6
+/deepseek-ai-dsh-tui-app/use-this-package/screen-and-mouse:
+  en: 692f60ad429c4bd8
+  zh: fa89de5cdbe9d551
+/deepseek-ai-dsh-tui-app/use-this-package/conversation-display:
+  en: 1281510187ed0fcc
+  zh: 56d3254f274e1267
+/deepseek-ai-dsh-tui-app/use-this-package/composer-and-keyboard:
+  en: dc71320f36d48d72
+  zh: 4bf75aa618ff4c6d
+/deepseek-ai-dsh-tui-app/use-this-package/steering-and-queueing:
+  en: 9ca3ad7e15bd9329
+  zh: b848359d83155056
+/deepseek-ai-dsh-tui-app/use-this-package/pasting-and-prompt-history:
+  en: 70108591c1d236ce
+  zh: ca9321009b7461f4
+/deepseek-ai-dsh-tui-app/use-this-package/slash-commands:
+  en: d78495420caab604
+  zh: 02186e8bd2317454
+/deepseek-ai-dsh-tui-app/use-this-package/recorded-changes:
+  en: f50b30e8868fa1cd
+  zh: f561ee8b79ba3a6f
+/deepseek-ai-dsh-tui-app/use-this-package/copy-links-images-and-local-editing:
+  en: 6c68be928eaeb37b
+  zh: 47f6f571afe952ad
+/deepseek-ai-dsh-tui-app/use-this-package/text-selection:
+  en: 1d2e5b9f39226b7b
+  zh: 315f2714428ae3e2
+/deepseek-ai-dsh-tui-app/use-this-package/panels-and-attention:
+  en: b03a09ee0947a963
+  zh: f61214640ef0c2ae
+/deepseek-ai-dsh-tui-app/use-this-package/permissions-and-interactive-questions:
+  en: 1928f40cd80c2f3e
+  zh: 9c9b84e00686320f
+/deepseek-ai-dsh-tui-app/use-this-package/smart-approval:
+  en: 892a9b5bd05cc620
+  zh: 9909ec2ec0c6e1e2
+/deepseek-ai-dsh-tui-app/use-this-package/prepared-conversations:
+  en: d12080e20a533b3f
+  zh: 1eccdf7c9c02401c
+/deepseek-ai-dsh-tui-app/use-this-package/background-jobs:
+  en: e34bb5652301fdb6
+  zh: ad4b56b19747b6d7
+/deepseek-ai-dsh-tui-app/use-this-package/context-activity-and-performance:
+  en: 2394966fdd9e399b
+  zh: ec51e68009d6cbce
+/deepseek-ai-dsh-tui-app/use-this-package/without-a-terminal:
+  en: 2572ee2ca81a4d71
+  zh: 441393e9ca046097
+/deepseek-ai-dsh-tui-app/build-and-test:
+  en: 8b13b39defaa3d9b
+  zh: 6e2153172468ee25
+/deepseek-ai-dsh-tui-app/understand-the-implementation:
+  en: 42b15ac6321706aa
+  zh: 7ae097f3abcc5d9c
+/deepseek-ai-dsh-tui-app/understand-the-implementation/shared-services-and-admission:
+  en: bd780f50208caea0
+  zh: c9a4f94442ef1e9e
+/deepseek-ai-dsh-tui-app/understand-the-implementation/transcript-rendering:
+  en: 41f543821d34e61a
+  zh: 75bf5b12e033f5b2
+/deepseek-ai-dsh-tui-app/understand-the-implementation/source-map:
+  en: ae6ef4cdc0b813b2
+  zh: e59a595e4bcaf9c0
+/deepseek-ai-dsh-tui-app/further-exploration:
+  en: b604443b3303f64f
+  zh: 48236aa4da48921c
+/deepseek-ai-dsh-tui-app/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-tui-app/model-experience/deployment-persona-fallback:
+  en: 2b37bf126d414899
+  zh: df9f4d8bf8719ffa
+/deepseek-ai-dsh-tui-app/model-experience/deployment-persona-fallback/what-the-model-sees:
+  en: f9f96026859d76a8
+  zh: 535e8cc6e117488c
+/deepseek-ai-dsh-tui-app/model-experience/deployment-persona-fallback/what-the-model-sees/persona-prefix:
+  en: 03432eed0cd64e5a
+  zh: cfe483d8d3d3144b
+/deepseek-ai-dsh-tui-app/model-experience/deployment-persona-fallback/what-the-model-sees/persona-suffix:
+  en: 71b0051e5a5e726a
+  zh: b2737252841fa45b
+/deepseek-ai-dsh-tui-app/model-experience/deployment-persona-fallback/token-effect:
+  en: 720979367d389a51
+  zh: b4456ec40f2d4aa7
+/deepseek-ai-dsh-tui-app/model-experience/deployment-persona-fallback/kv-cache-effect:
+  en: c5389cac665b698c
+  zh: e31b616cc0fd6fae
+/deepseek-ai-dsh-tui-app/model-experience/terminal-prompts:
+  en: e35dbe12e9d34bf5
+  zh: 266102ed5e20d1d0
+/deepseek-ai-dsh-tui-app/model-experience/terminal-prompts/what-the-model-sees:
+  en: f1cdb7a9e5882076
+  zh: c8ca87423ced0896
+/deepseek-ai-dsh-tui-app/model-experience/terminal-prompts/token-effect:
+  en: a36856a52a986569
+  zh: c2c628068f6d6d4d
+/deepseek-ai-dsh-tui-app/model-experience/terminal-prompts/kv-cache-effect:
+  en: ebef62f18467e52e
+  zh: 202007e403770a55
+/deepseek-ai-dsh-tui-app/model-experience/smart-approval-row:
+  en: 82134c0b8ede2ead
+  zh: 4756c891d2bb4880
+/deepseek-ai-dsh-tui-app/model-experience/smart-approval-row/what-the-model-sees:
+  en: 4a01580c92f75258
+  zh: c515858ffe5340de
+/deepseek-ai-dsh-tui-app/model-experience/smart-approval-row/token-effect:
+  en: 9c753448ce104712
+  zh: 0e8deec92722b384
+/deepseek-ai-dsh-tui-app/model-experience/smart-approval-row/kv-cache-effect:
+  en: a7d4520bfb415209
+  zh: 75150979365e70c8
+/deepseek-ai-dsh-tui-app/known-limitations-and-deferred-work:
+  en: dabba8f44dc1d4b9
+  zh: e5301e79ff1777f2
+/deepseek-ai-dsh-tui-app/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

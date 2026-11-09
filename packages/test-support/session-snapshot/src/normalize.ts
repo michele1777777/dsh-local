@@ -412,6 +412,10 @@ export function normalizeSessionLog(
       const data = record.data as Record<string, unknown>
       if ('durationMs' in data) data.durationMs = 0
     }
+    if (record.type === 'laya-pruner/end' && record.data !== null && typeof record.data === 'object') {
+      const data = record.data as Record<string, unknown>
+      if ('ms' in data) data.ms = 0
+    }
     normalizeFeedbackClocks(record)
     if ((record.type === 'job/registered' || record.type === 'job/settled')
       && record.data !== null && typeof record.data === 'object') {
@@ -603,6 +607,10 @@ export function scrubSessionSnapshot(rawLog: string): string {
     omitFixtureEnvelope(record)
     if (Object.hasOwn(record, 'sourceEventSeqs')) {
       record.sourceEventSeqs = decodeSeqRanges(record.sourceEventSeqs)
+    }
+    if (record.type === 'laya-pruner/end' && record.data !== null && typeof record.data === 'object') {
+      const data = record.data as Record<string, unknown>
+      if ('ms' in data) data.ms = 0
     }
     normalizeFeedbackClocks(record)
     return JSON.stringify(record)

@@ -74,6 +74,15 @@ declare module '@deepseek-ai/cordis' {
      */
     'llm/stream'(this: LlmRuntime, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
 
+    /**
+     * Opt a request into provider-supported retention of interleaved contexts.
+     * This changes transport policy only, never the model-visible request.
+     * @param options - frozen request whose owning session selects the policy.
+     * @returns true to retain contexts, undefined to leave the normal policy.
+     * @mode bail
+     */
+    'llm/preserve-context'(options: GenerateOptions): true | void
+
   }
 }
 

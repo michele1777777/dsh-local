@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-10-19-laya-managed-progress.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-10-19-laya-managed-progress.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-10-19-laya-managed-progress:
+  en: 314d202b7b1046da
+  zh: 90c4bd5749d562af
+/2026-10-19-laya-managed-progress/summary:
+  en: d727cdfbf86d0c7e
+  zh: 73a609b3c593dcc0
+/2026-10-19-laya-managed-progress/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-10-19-laya-managed-progress/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-10-19-laya-managed-progress/compatibility:
+  en: dac06ed97e62cd33
+  zh: 477a788d14df2d68
+/2026-10-19-laya-managed-progress/verification:
+  en: cbcba9f377f31fc3
+  zh: a9ced09f9140194a
+/2026-10-19-laya-managed-progress/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "终端应用",
+    "description": "交互式终端应用，与 Web UI 使用相同的会话和 agent preset。"
+  }
+}

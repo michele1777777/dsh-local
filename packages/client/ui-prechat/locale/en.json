@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Prepared conversation editor",
+    "description": "Edit a prepared conversation for /prechat and show the imported messages."
+  }
+}

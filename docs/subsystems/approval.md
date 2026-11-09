@@ -28,6 +28,10 @@ type ApprovalRequestId = Branded<'ApprovalRequestId'>
 type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
 ```
 
+## Machine-review audit
+
+The optional `ApprovalReview` value on `approval/decided` records a policy, reviewer or fallback recommendation (`allow`, `ask` or `deny`), a bounded explanation and review duration, with provider/model when applicable. It does not replace `ApprovalOutcome`: a recommendation can be cancelled or followed by a human decision. `ctx.approval.recordReview()` binds metadata to the current asynchronous request without changing the borrowed request identity. All review data stays log-only. The [Smart approval package](../../packages/interaction/smart-approval/README.md) owns eligibility, limits and shared Web/TUI selection; `never` still rejects before any reviewer runs.
+
 ## Per-session policy
 
 `ApprovalPolicy` determines what happens before interactive answerers run. `ask` delegates to the composed answerer chain, whose no-answer default is `unavailable`; `never` deterministically returns `rejected` without dispatching any answerer. The effective value is the last `approval/policy` event in the session log, falling back to the service config. Consumers read it with `ctx.approval.effectivePolicy(session)`; `setApprovalPolicy(session, policy)` is the single write path, so replay reconstructs the override.
@@ -132,6 +136,14 @@ setPolicy(agent: Agent, policy: ApprovalPolicy): void
 async request(req: ApprovalRequest): Promise<ApprovalOutcome>
 
 /**
+ * Attach machine-review metadata to a live question's existing audit outcome.
+ * This does not authorize the question, append a message, or change its policy.
+ * @param request - the exact question supplied to an approval/request listener.
+ * @param review - bounded audit fields, with no raw prompt or reasoning.
+ */
+recordReview(request: ApprovalRequest, review: ApprovalReview): void
+
+/**
  * Read the session override without applying the configured default.
  * @param session - session whose log supplies the override.
  * @returns the last logged policy, or `undefined` without one.
@@ -167,4 +179,25 @@ Ask composed answerers for one decision. Return an outcome to claim the request 
 Types: [Agent](core.md) · [Scoped](scope.md)
 
 Source: [`packages/interaction/user-approval/src/types.ts`](../../packages/interaction/user-approval/src/types.ts)
+
+<a id="smart-approval-events"></a>
+
+### `smart-approval/*` events
+
+<a id="smart-approvalstatus--emit"></a>
+
+#### `smart-approval/status` — emit
+
+An isolated reviewer started or settled; never a model-facing message.
+
+```ts cordis-catalog
+/**
+ * An isolated reviewer started or settled; never a model-facing message.
+ * @param status - owning agent, operation, and current review state.
+ * @mode emit
+ */
+'smart-approval/status'(status: ReviewStatus): void
+```
+
+Source: [`packages/interaction/smart-approval/src/index.ts`](../../packages/interaction/smart-approval/src/index.ts)
 <!-- END GENERATED cordis-surface -->

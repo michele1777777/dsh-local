@@ -2,22 +2,18 @@
 
 English | [中文](CONTRIBUTING.zh.md)
 
-Thank you for your interest in contributing to DeepSeek Harness!
+Thank you for your interest in dsh-local, a local-first distribution built on DeepSeek Harness.
 
-We deeply believe in the power of open source communities, and that belief has shaped this project from the very beginning.
+## Report issues
 
-DeepSeek Harness is still at an early stage and under active development. We are sorry that we cannot accept external pull requests at the moment. However, contributing code to this repository is far from the only way to help. There are many other ways to get involved:
+Report bugs and suggestions through [GitHub Issues](https://github.com/michele1777777/dsh-local/issues). Include the profile (`dsh`, `dsh web`, ACP, or headless), the model route, and the steps that reproduce the problem. Remove server addresses, keys, and other private values from logs and configuration before you share them.
 
-- Identify and report issues or bugs in GitHub Discussions:
-  - Upvote discussions that you would like to bring to the team's attention. We are a very small team and may not be able to reply to every post, but we monitor them and consider them when allocating resources.
-- Contribute to the ecosystem:
-  - Create a plugin that excites you and share it with others:
-    - Associate your GitHub project with the `dsh-plugin` topic to help others discover your plugin.
-  - Write blog posts and how-to guides about DeepSeek Harness.
-  - Answer questions and help other members of the community.
+A problem that also occurs in DeepSeek Harness itself belongs upstream: report it through the upstream [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions).
 
-DeepSeek Harness is designed to be deeply customizable. We do not believe that packages in the official repository are inherently more important than packages created by the community. You may consider this repository an idea, an official showcase, and a source of inspiration, but not a mandate from us.
+## Propose changes
 
-We have already seen exciting projects emerge from the community, and we hope to see the ecosystem continue to grow in its own directions.
+Pull requests are welcome. Follow [AGENTS.md](AGENTS.md) and the [development guide](docs/development.md): keep changes in plugins and profile layers, update the affected README and its Chinese counterpart, and run the checks that cover your change before you open the pull request.
 
-Into the unknown.
+## Contribute to the ecosystem
+
+Create a plugin and share it: add the [`dsh-plugin`](https://github.com/topics/dsh-plugin) topic to its GitHub repository so others can discover it.

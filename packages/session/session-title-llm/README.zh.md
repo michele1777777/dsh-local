@@ -29,7 +29,7 @@ kind: "package-library"
 
 ### 执行提供方请求
 
-提供方插件直接注册到 `ctx.sessionTitle`，并在其 `generate(request)` 中把 `{ system, input, messageSeqs, selectReasoningEffort }` 传给 `executeSessionTitleLlm`。提供方负责系统指令、输入封装、自己的推理选择与输出解释；该函数负责路由准备、上限、取消、请求记录与流式组装。服务上的第二次注册会立即抛出。
+提供方插件直接注册到 `ctx.sessionTitle`，并在其 `generate(request)` 中把 `{ system, input, messageSeqs, selectReasoningEffort }` 传给 `executeSessionTitleLlm`。提供方负责系统指令、输入封装、自己的推理选择与输出解释；该函数负责路由准备、上限、取消、请求记录与流式组装。空的 `messageSeqs` 表示输入不引用任何人类消息，例如 `/goal` 的 objective；此时调用不写入 `session/title-llm-request` 记录，因为该记录只能引用人类消息。服务上的第二次注册会立即抛出。
 
 每个请求都带有 `currentTitle`，即服务在调用时捕获的最新已接纳标题快照，包括已接纳的回退标题。提供方自行决定是否使用它：全消息提供方只锚定来源为提供方的标题（包括继承自不同提供方的标题），并把回退、用户与不存在的标题视为初始生成。首消息提供方忽略 `currentTitle`。
 

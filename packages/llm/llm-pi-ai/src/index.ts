@@ -189,7 +189,8 @@ export function apply(ctx: Context, config: Config): void {
   const profiles = (): ReadonlyMap<string, ResolvedPiAiProviderProfile> => {
     const raw = config.providers.get()
     if (raw === lastRaw && memoized !== undefined) return memoized
-    const next = resolveProfiles(structuredClone(raw) as import('./config.ts').Options['providers'], 'deferred')
+    const next = resolveProfiles(structuredClone(raw) as import('./config.ts').Options['providers'], 'deferred',
+      name => launchEnvironmentOf(ctx).get(name)?.value)
     lastRaw = raw
     memoized = next
     return next
@@ -241,6 +242,7 @@ export function apply(ctx: Context, config: Config): void {
     auth,
     prepareHeaders: (request, headers) => ctx.waterfall('llm-pi-ai/request-headers', request, headers, () => headers),
     resolveAttachments: () => ctx.get('attachments'),
+    preserveContext: options => ctx.bail('llm/preserve-context', options) === true,
     resolveImageAccess: (attachments, ref) => resolveImageAttachmentAccess(
       attachments,
       hostPath => ctx.get('fs')?.processPathFromHostPath(hostPath),

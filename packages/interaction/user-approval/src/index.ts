@@ -5,6 +5,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { z as zod } from 'zod'
@@ -47,10 +48,10 @@ declare module '@deepseek-ai/dsh-session/types' {
 }
 
 import { ApprovalRequestId } from './types.ts'
-import type { ApprovalOutcome, ApprovalRequestEvent } from './types.ts'
+import type { ApprovalOutcome, ApprovalRequestEvent, ApprovalReview } from './types.ts'
 
 export { ApprovalRequestId } from './types.ts'
-export type { ApprovalOutcome } from './types.ts'
+export type { ApprovalOutcome, ApprovalReview } from './types.ts'
 
 /** Every {@link ApprovalOutcome}, for runtime normalization of answerer returns. */
 const OUTCOMES: readonly ApprovalOutcome[] = ['allowed-once', 'rejected', 'cancelled', 'unavailable']
@@ -165,6 +166,7 @@ export interface Config {
  * changes to the model through the runtime-context snapshot and switch notices.
  */
 export class ApprovalService extends Service {
+  private readonly reviewContext = new AsyncLocalStorage<{ request: ApprovalRequest; active: boolean; review?: ApprovalReview }>()
   static inject = ['sessionProjections']
 
   static Config: z<Config> = z.object({
@@ -255,9 +257,38 @@ export class ApprovalService extends Service {
       ...req.callId !== undefined ? { callId: req.callId } : {},
       ...req.reason !== undefined ? { reason: req.reason } : {},
     })
-    const outcome = await this.decide(req, session)
-    session.append('approval/decided', { id, outcome })
-    return outcome
+    // Keep the borrowed request identity. Async-local state separates concurrent
+    // invocations even when a caller reuses the same request object.
+    const audit: { request: ApprovalRequest; active: boolean; review?: ApprovalReview } = { request: req, active: true }
+    return this.reviewContext.run(audit, async () => {
+      try {
+        const outcome = await this.decide(req, session)
+        const review = audit.review
+        session.append('approval/decided', { id, outcome, ...review === undefined ? {} : { review } })
+        return outcome
+      } finally {
+        audit.active = false
+      }
+    })
+  }
+
+  /**
+   * Attach machine-review metadata to a live question's existing audit outcome.
+   * This does not authorize the question, append a message, or change its policy.
+   * @param request - the exact question supplied to an approval/request listener.
+   * @param review - bounded audit fields, with no raw prompt or reasoning.
+   */
+  recordReview(request: ApprovalRequest, review: ApprovalReview): void {
+    const audit = this.reviewContext.getStore()
+    if (audit?.request !== request || !audit.active) return
+    if (!['policy', 'reviewer', 'fallback'].includes(review.source)
+      || !['allow', 'ask', 'deny'].includes(review.decision)
+      || !Number.isFinite(review.durationMs) || review.durationMs < 0
+      || review.reason.trim() === '' || review.reason.length > 320
+      || /[\u0000-\u001f\u007f-\u009f]/.test(review.reason)) {
+      throw new TypeError('Invalid machine-review audit metadata')
+    }
+    audit.review = Object.freeze({ ...review })
   }
 
   /**

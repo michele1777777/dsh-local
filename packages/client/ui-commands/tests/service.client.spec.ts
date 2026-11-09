@@ -1199,3 +1199,16 @@ describe('directory invalidation events', () => {
     expect(source.matchSpace!(proj('s2'), '/attach')).not.toBeUndefined()
   })
 })
+
+
+it('reloads model-dependent commands before classifying a slash input after model selection', async () => {
+  let local = false
+  const b = await bench({ commands: async () => ({ commands: local ? [{ name: 'prechat', description: 'Import conversation' }] : [] }) })
+  await b.warm(proj('s1'))
+  expect(b.listCalls).toHaveLength(1)
+  local = true
+  await b.sessions.setProjection('s1', 'modelSelection', { lastUsed: null, next: { provider: 'ds4-v41-flash', model: 'deepseek-v4.1-flash' } })
+  const candidates = await b.source.candidates(proj('s1'), { query: 'prechat', position: 'leading', drilled: false, signal: new AbortController().signal })
+  expect(candidates.some(candidate => candidate.name === 'prechat')).toBe(true)
+  expect(b.executeCalls).toHaveLength(0)
+})

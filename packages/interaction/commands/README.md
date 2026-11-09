@@ -115,6 +115,10 @@ Read these pages when the package-level contract is not enough. They move from t
 -----
 
 <a id="model-experience"></a>
+## Session-dependent commands
+
+A definition may supply `available(agent)`. Discovery filters unavailable commands, and execution checks the predicate again before recording an invocation. A successful result may return `sessionId` to navigate the receiving UI to a newly created session. The command implementation owns creation and persistence; the result alone never creates a session.
+
 ## Model Experience
 
 ### Direct human commands

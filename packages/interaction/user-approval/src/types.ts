@@ -31,6 +31,21 @@ export function ApprovalRequestId(id: string): ApprovalRequestId {
  */
 export type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
 
+/** Optional machine-review audit. The ordinary outcome remains authoritative. */
+export interface ApprovalReview {
+  /** Decision source, not a persistent permission grant. */
+  source: 'policy' | 'reviewer' | 'fallback'
+  /** The machine recommendation; an ask can subsequently be approved by the human. */
+  decision: 'allow' | 'ask' | 'deny'
+  /** Bounded user-facing explanation; never private reasoning or a prompt. */
+  reason: string
+  /** Wall-clock duration of machine review, excluding human response time. */
+  durationMs: number
+  /** Actual auxiliary route when a model was invoked. */
+  provider?: string
+  model?: string
+}
+
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
@@ -55,6 +70,8 @@ declare module '@deepseek-ai/dsh-session/types' {
     'approval/decided': {
       id: ApprovalRequestId
       outcome: ApprovalOutcome
+      /** Optional isolated machine-review recommendation for this exact question. */
+      review?: ApprovalReview
     }
   }
 }

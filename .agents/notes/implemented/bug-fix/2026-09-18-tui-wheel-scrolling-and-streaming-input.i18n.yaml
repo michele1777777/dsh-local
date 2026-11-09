@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-18-tui-wheel-scrolling-and-streaming-input.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-18-tui-wheel-scrolling-and-streaming-input.md
+/agent-note-the-tui-reads-the-wheel-and-keeps-the-keyboard-during-a-turn:
+  en: 6c12c21043670e6a
+  zh: 1a47dca630db11ef
+/agent-note-the-tui-reads-the-wheel-and-keeps-the-keyboard-during-a-turn/problem:
+  en: f131513429dda255
+  zh: 781a7b046de81fd2
+/agent-note-the-tui-reads-the-wheel-and-keeps-the-keyboard-during-a-turn/decision:
+  en: d324a9aea11d43c1
+  zh: 9ec9e71aab9920bb
+/agent-note-the-tui-reads-the-wheel-and-keeps-the-keyboard-during-a-turn/alternatives-considered:
+  en: c45c2c0b29f48f72
+  zh: 64899bd393c8fa2c
+/agent-note-the-tui-reads-the-wheel-and-keeps-the-keyboard-during-a-turn/consequences:
+  en: e865293425255f2e
+  zh: dbe32a9d5e8cfbf9

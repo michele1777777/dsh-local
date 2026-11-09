@@ -176,13 +176,14 @@ export class SessionCommandController {
             : { reasoningEffort: ReasoningEffortId(request.reasoningEffort) }),
         }
         await this.ctx.llm.resolveCallConfig(selected)
-        agent.model.select(selected)
+        const target = await this.ctx.waterfall('session/model-target', { agent, selected }, () => Promise.resolve(agent))
+        target.model.select(selected)
         void this.ctx.agentDefaultModel.saveSelection(selected).catch((error: unknown) => {
           this.ctx.logger.warn(
             `session-controller: model selection changed for the Session but the default was not saved: ${String(error)}`,
           )
         })
-        return { selected: { ...selected } }
+        return { selected: { ...selected }, ...(target.id === agent.id ? {} : { sessionId: target.id }) }
       } catch (error) {
         if (remoteErrorOf(error) !== undefined) throw error
         throw new RemoteError(

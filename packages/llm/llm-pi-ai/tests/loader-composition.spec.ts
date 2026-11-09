@@ -36,6 +36,7 @@ afterEach(async () => {
   root = undefined
   await closeMockServers()
   vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
 })
 
 /** Boot the dormant composition: a bare `llm-pi-ai` row with no config at all. */
@@ -139,6 +140,82 @@ describe('llm-pi-ai real dormant composition', () => {
     const result = await assemble(ctx, { provider: 'deepseek', model: 'deepseek-flash', messages: [] })
     expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
     expect(server.headers[0]?.authorization).toBe('Bearer key-from-store')
+  })
+
+  it('projects scoped cache policy to a sessionCache route and drops it on mode exit', async () => {
+    const server = await mockServer(Array.from({ length: 5 }, () => ({ events: textEvents })))
+    // Every fetch is redirected to this test's owned mock. Never contact a running model on port 8080.
+    const realFetch = globalThis.fetch
+    vi.stubGlobal('fetch', (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (!url.startsWith('http://127.0.0.1:8080/')) throw new Error(`unexpected URL ${url}`)
+      return realFetch(url.replace('http://127.0.0.1:8080', server.url), init)
+    })
+    const { ctx, settingsPath } = await loadComposition()
+    await writeFile(settingsPath, [
+      '- id: llm-pi-ai', '  config:', '    providers:', '      local:',
+      '        apiKeyEnv: PI_COMPOSITION_KEY', '        api: openai-completions',
+      '        baseURL: http://127.0.0.1:8080/v1', '        sessionCache: true',
+      '        models:', '          - id: local-model', '',
+    ].join('\n'))
+    await vi.waitFor(() => { expect(ctx.llm.listProviders().map(p => p.id)).toEqual(['local']) }, { timeout: 5000 })
+    let auto = false
+    const dispose = ctx.on('llm/preserve-context', () => auto ? true : undefined)
+    const options = { provider: 'local', model: 'local-model', messages: [], sessionId: 'main' as never }
+    await assemble(ctx, options)
+    auto = true
+    await assemble(ctx, options)
+    await assemble(ctx, { ...options, purpose: 'auto-review' })
+    // A request outside any Session keeps the requested context but has no cache key to send.
+    await assemble(ctx, { provider: 'local', model: 'local-model', messages: [] })
+    auto = false
+    dispose()
+    await assemble(ctx, options)
+    const bodies = server.requests as Array<Record<string, unknown>>
+    expect(bodies.map(body => body['preserve_context'])).toEqual([undefined, true, true, true, undefined])
+    expect(bodies.map(body => body['prompt_cache_key'])).toEqual(['main', 'main', 'main:auto-review', undefined, 'main'])
+    expect(bodies[0]?.['messages']).toEqual(bodies[1]?.['messages'])
+    expect(bodies[0]).toEqual(bodies[4])
+  })
+
+  it('sends requests to the address a route reads through baseURLEnv', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    vi.stubEnv('PI_COMPOSITION_BASE_URL', `${server.url}/v1`)
+    const { ctx, settingsPath } = await loadComposition()
+    await writeFile(settingsPath, [
+      '- id: llm-pi-ai', '  config:', '    providers:', '      local:',
+      '        apiKeyEnv: PI_COMPOSITION_KEY', '        api: openai-completions',
+      '        baseURL: http://127.0.0.1:9/v1', '        baseURLEnv: PI_COMPOSITION_BASE_URL',
+      '        models:', '          - id: local-model', '',
+    ].join('\n'))
+    await vi.waitFor(() => { expect(ctx.llm.listProviders().map(p => p.id)).toEqual(['local']) }, { timeout: 5000 })
+    const result = await assemble(ctx, { provider: 'local', model: 'local-model', messages: [] })
+    expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
+    expect(server.requests).toHaveLength(1)
+  })
+
+  it('sends no session cache fields to a route without sessionCache', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const realFetch = globalThis.fetch
+    vi.stubGlobal('fetch', (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (!url.startsWith('http://127.0.0.1:8080/')) throw new Error(`unexpected URL ${url}`)
+      return realFetch(url.replace('http://127.0.0.1:8080', server.url), init)
+    })
+    const { ctx, settingsPath } = await loadComposition()
+    await writeFile(settingsPath, [
+      '- id: llm-pi-ai', '  config:', '    providers:', '      local:',
+      '        apiKeyEnv: PI_COMPOSITION_KEY', '        api: openai-completions',
+      '        baseURL: http://127.0.0.1:8080/v1',
+      '        models:', '          - id: local-model', '',
+    ].join('\n'))
+    await vi.waitFor(() => { expect(ctx.llm.listProviders().map(p => p.id)).toEqual(['local']) }, { timeout: 5000 })
+    const dispose = ctx.on('llm/preserve-context', () => true)
+    await assemble(ctx, { provider: 'local', model: 'local-model', messages: [], sessionId: 'main' as never })
+    dispose()
+    const body = (server.requests as Array<Record<string, unknown>>)[0]
+    expect(body).not.toHaveProperty('preserve_context')
+    expect(body).not.toHaveProperty('prompt_cache_key')
   })
 
   it('offers OpenAI sign-in by API key only, while other subscription logins stay', async () => {

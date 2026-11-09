@@ -47,6 +47,8 @@ interface CommandDefinition {
    * that payload in the session log.
    */
   readonly recordInput?: boolean
+  /** Fresh capability predicate, checked for discovery and again before execution. */
+  readonly available?: (agent: Agent) => boolean
   /** Execute against the receiving agent without sending the command to the model. */
   readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>
 }
@@ -83,6 +85,8 @@ interface CommandInvocation {
 type CommandResult =
   | {
     readonly kind: 'success'
+    /** Session created by the command; capable UIs navigate after successful settlement. */
+    readonly sessionId?: SessionId
     readonly text?: string
     /** Earlier authoritative domain event that owns a richer presentation. */
     readonly sourceEventSeq?: SessionSeq

@@ -104,6 +104,13 @@ Owns the deployment's configured permission presets, the fixed Auto integration 
 registerAuto(admit: () => void): () => Promise<void>
 
 /**
+ * Advertise Smart only while its complete review integration is accepting work.
+ * @param admit - synchronous selection/resume admission check.
+ * @returns effect disposer; the provider must close and drain reviews first.
+ */
+registerSmart(admit: () => void): () => Promise<void>
+
+/**
  * Resolve the preset matching the effective knob values. A still-matching
  * last selection wins shared-bundle ties, and a still-selected Auto also
  * matches the `never` approval policy; otherwise the first configured
@@ -138,9 +145,16 @@ optionOf(name: string): PresetOption
  * @param name - the preset to switch to; unknown names throw.
  */
 set(session: Session, name: string): void
+
+/**
+ * Switch through the same live-agent path as /permission, including canonical knob notices.
+ * @param agent - owning agent with a command turn open.
+ * @param name - selectable preset name.
+ */
+setForAgent(agent: import('@deepseek-ai/dsh-agent').Agent, name: string): void
 ```
 
-Types: [Session](session.md)
+Types: [Agent](core.md) · [Session](session.md)
 
 Source: [`packages/interaction/permission-presets/src/index.ts`](../../packages/interaction/permission-presets/src/index.ts)
 

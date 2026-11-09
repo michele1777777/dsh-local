@@ -3,11 +3,15 @@
  * preset. Every native call and every started PTC inner call is reviewed once
  * before its body; the outer `run_code` transport is deliberately excluded.
  * Under the `ask` approval policy a reviewer denial asks the user; under
- * `never` it is final.
+ * `never` it is final. Configured trusted tools skip the review; a reviewer
+ * failure is retried once (with a repair prompt after an unreadable reply)
+ * before it fails the call.
  *
  * @module @deepseek-ai/dsh-experimental-auto-review
  */
 
+import { appendFileSync } from 'node:fs'
+import z from '@deepseek-ai/schemastery'
 declare module '@deepseek-ai/dsh-llm/types' {
   interface LlmRequestPurposeMap {
     'auto-review': true
@@ -21,6 +25,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-instructions'
 import {
   BlockAssembler,
+  ReasoningEffortId,
   type ContentBlock,
   type GenerateOptions,
   type MessageSource,
@@ -33,6 +38,7 @@ import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 import { AUTO_PRESET } from '@deepseek-ai/dsh-permission-presets'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-subagent'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import {
   RUN_CODE_NAME,
@@ -151,6 +157,71 @@ interface ScopedPtcStart {
 export const name = 'experimental-auto-review'
 /** Complete host services required before Auto may be advertised. */
 export const inject = ['approval', 'llm', 'permissionPresets', 'sessions', 'tools', 'workingDirectory']
+
+/** Auto review plugin config. All optional. */
+export interface Config {
+  /**
+   * Tool names that run without an LLM review while Auto is active: an exact
+   * name, or a prefix ending in `*` (for example `mcp__notes__*`). Meant for
+   * tools whose effects are known and local, such as a team's coordination
+   * channel; every other call keeps the full review.
+   */
+  trustedTools: string[]
+  /**
+   * Reasoning effort for the reviewer's own request; defaults to `off`.
+   * The route's declared effort mapping determines the provider wire format.
+   */
+  reasoningEffort?: string
+  /** Output token limit for the reviewer's request; omitted, the route default applies. */
+  maxTokens?: number
+  /** JSONL file that receives one record per reviewer failure or denial, for the operator. */
+  logFile?: string
+}
+/** Config schema: no trusted tools unless a profile lists them. */
+export const Config: z<Config> = z.object({
+  trustedTools: z.array(z.string()).default([]),
+  reasoningEffort: z.string().default('off'),
+  maxTokens: z.natural(),
+  logFile: z.string(),
+})
+
+/** A reviewer reply that could not be read as a protocol decision; keeps the raw text for repair. */
+class ReviewFormatError extends Error {
+  constructor(message: string, readonly raw: string) {
+    super(message)
+    this.name = 'ReviewFormatError'
+  }
+}
+
+/** The rejected reply shown to the reviewer on its one retry. */
+interface ReviewRepair {
+  readonly raw: string
+  readonly error: string
+}
+
+/**
+ * Whether a tool name matches one trusted exact name or `prefix*` pattern; a bare `*` matches nothing.
+ * @param toolName - the registered tool name of the pending call.
+ * @param patterns - the configured `trustedTools` entries.
+ * @returns whether the call skips review.
+ */
+export function isTrustedTool(toolName: string, patterns: readonly string[]): boolean {
+  return patterns.some(pattern => pattern.endsWith('*')
+    ? pattern.length > 1 && toolName.startsWith(pattern.slice(0, -1))
+    : toolName === pattern)
+}
+
+/** Strip one optional Markdown code fence around the reviewer's JSON text. */
+function unfence(text: string): string {
+  const trimmed = text.trim()
+  const fenced = /^```[a-zA-Z]*\s*\n([\s\S]*?)\n?```$/.exec(trimmed)
+  return fenced === null ? trimmed : (fenced[1] ?? '').trim()
+}
+
+/** Render one thrown value as its message. */
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
 
 /** Return JSON text for one immutable logged value. */
 function json(value: unknown): string {
@@ -663,7 +734,28 @@ async function readDecision(stream: AsyncIterable<StreamChunk>): Promise<AutoRev
   if (final?.type !== 'text' || blocks.slice(0, -1).some(block => block.type !== 'reasoning')) {
     throw new Error('auto-review: reviewer must emit zero or more reasoning blocks followed by exactly one text block')
   }
-  return parseDecision(final.text)
+  return parseDecisionText(final.text)
+}
+
+/**
+ * Read the reviewer's text as one protocol decision: the whole (optionally fenced)
+ * text first, else the last protocol-shaped object in it. Only the six legal
+ * combinations are ever returned.
+ */
+function parseDecisionText(text: string): AutoReviewDecision {
+  try {
+    return parseDecision(unfence(text))
+  } catch (first: unknown) {
+    const candidates = text.match(/\{[^{}]*\}/g) ?? []
+    for (const candidate of candidates.reverse()) {
+      try {
+        return parseDecision(candidate)
+      } catch {
+        // not a protocol object: keep looking
+      }
+    }
+    throw new ReviewFormatError(errorMessage(first), text)
+  }
 }
 
 /** Review one frozen pending action with the fixed policy and current LLM route. */
@@ -673,20 +765,34 @@ async function classifyRisk(
   exec: ToolExecution,
   signal: AbortSignal,
   shown: ShownSchemas,
+  config: Config,
+  repair?: ReviewRepair,
 ): Promise<AutoReviewDecision> {
   const cwd = await ctx.workingDirectory.ensure(agent, signal)
   const snapshot = snapshotAutoReview(agent, exec, cwd, shown)
   shown.set(snapshot.pending.key, snapshot.pending.schema)
+  const messages = reviewMessages(snapshot)
+  if (repair !== undefined) {
+    messages.push({ role: 'user', content: [{ type: 'text', text: `REJECTED_PREVIOUS_REPLY\n${repair.raw.slice(-4000)}\n\nThat reply did not match the protocol (${repair.error}). Reply now with exactly one JSON object of the allowed shapes and nothing else.` }] })
+  }
+  let effort: ReasoningEffortId | undefined
+  const requestedEffort = config.reasoningEffort ?? 'off'
+  const info = await ctx.llm.resolveModelInfo(snapshot.provider, snapshot.model, signal).catch(() => undefined)
+  if (info?.reasoning?.efforts.some(level => String(level.id) === requestedEffort) === true) {
+    effort = ReasoningEffortId(requestedEffort)
+  }
   // This review prompt is sent only through ctx.llm.stream and never enters a Session log.
   // The Session id also supplies provider routing and request-extension identity.
   const options: GenerateOptions = deepFreeze({
     provider: snapshot.provider,
     model: snapshot.model,
     system: REVIEW_POLICY,
-    messages: reviewMessages(snapshot),
+    messages,
     temperature: 0,
     sessionId: agent.session.id,
     purpose: 'auto-review',
+    ...effort === undefined ? {} : { reasoningEffort: effort },
+    ...config.maxTokens ? { maxTokens: config.maxTokens } : {},
     signal,
   })
   return readDecision(ctx.llm.stream(options))
@@ -720,7 +826,7 @@ function askUser(exec: ToolExecution, reason?: string): PreToolDecision {
 
 /** Materialize a reviewer failure as its own error rather than a denial. */
 function failed(exec: ToolExecution, error: unknown): PreToolDecision {
-  const message = error instanceof Error ? error.message : String(error)
+  const message = errorMessage(error)
   return {
     kind: 'deny',
     reason: `Auto review of tool "${exec.name}" failed; its body was not executed: ${message}`,
@@ -728,14 +834,53 @@ function failed(exec: ToolExecution, error: unknown): PreToolDecision {
   }
 }
 
-/** Install the Auto preset and its review gate; preserve Session selection on application shutdown. */
-export function apply(ctx: Context): void {
+/** Install configured Auto review; preserve Session selection on application shutdown. */
+export function apply(ctx: Context, config: Config = { trustedTools: [] }): void {
+  const { trustedTools } = config
+  const record = (entry: Record<string, unknown>): void => {
+    if (!config.logFile) return
+    try {
+      appendFileSync(config.logFile, JSON.stringify({ time: new Date().toISOString(), ...entry }) + '\n')
+    } catch {
+      // the operator log is best effort and never affects the decision
+    }
+  }
   // Retain the injected service while this context drains on disposal.
   const permissionPresets = ctx.permissionPresets
   let accepting = true
   const active = new Set<Promise<void>>()
   const shownBySession = new WeakMap<Session, ShownSchemas>()
   const lifecycle = new AbortController()
+
+  // Resolve the live preset for each request; switching modes does not leave a
+  // server-wide cache enabled, and the model-visible prompt stays unchanged.
+  ctx.on('llm/preserve-context', (options) => {
+    if (!accepting || options.sessionId === undefined) return
+    // Other packages declare further purposes, such as titles and compaction, outside this program.
+    const purpose: string | undefined = options.purpose
+    if (purpose !== undefined && purpose !== 'auto-review') return
+    const session = ctx.sessions.get(options.sessionId)
+    return session !== undefined && permissionPresets.current(session) === AUTO_PRESET ? true : undefined
+  })
+
+  ctx.inject(['systemPrompt'], (scope) => {
+    scope.systemPrompt.context({
+      name: 'approval:auto-review',
+      order: scope.systemPrompt.getContextOrder('APPROVAL_POLICY'),
+      text: ({ agent }) => {
+        if (agent === undefined) return ''
+        const preset = permissionPresets.current(agent.session)
+        if (preset !== AUTO_PRESET) return `Current DSH permission preset: ${preset}. Auto review is inactive.`
+        const denial = ctx.approval.overrideOf(agent.session) === 'never'
+          ? 'Review denials are final; the tool does not execute.'
+          : 'A review denial asks the user for approval before the tool can execute.'
+        return 'Current DSH permission preset: auto. The danger-full-access file policy describes filesystem access; automatic authorization review is active. Tool calls are reviewed before execution unless explicitly trusted; for run_code, review applies to its inner tool calls. '
+          + `Tools exempt from Auto review (exact names or prefix* patterns): ${JSON.stringify(trustedTools)}. `
+          + 'Use tools normally within the user\'s instructions; full filesystem access does not grant permission for arbitrary actions. '
+          + denial
+      },
+    })
+  })
 
   ctx.effect(function* () {
     const stopListener = ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
@@ -749,6 +894,9 @@ export function apply(ctx: Context): void {
       if (!accepting || lifecycle.signal.aborted) {
         return { kind: 'cancel' }
       }
+      if (isTrustedTool(exec.name, trustedTools)) {
+        return next()
+      }
 
       const completed = Promise.withResolvers<void>()
       active.add(completed.promise)
@@ -759,17 +907,35 @@ export function apply(ctx: Context): void {
           shown = new Map()
           shownBySession.set(agent.session, shown)
         }
-        const review = await classifyRisk(ctx, agent, exec, signal, shown).then(
+        const schemas = shown
+        const attempt = (repair?: ReviewRepair) => classifyRisk(ctx, agent, exec, signal, schemas, config, repair).then(
           decision => ({ ok: true as const, decision }),
-          (error: unknown) => ({ ok: false as const, error }),
+          (error: unknown) => {
+            const message = errorMessage(error)
+            const raw = error instanceof ReviewFormatError ? error.raw : undefined
+            ctx.logger.warn(`auto-review: review of "${exec.name}" failed: ${message}`)
+            record({
+              event: 'failure', tool: exec.name, repair: repair !== undefined, error: message,
+              ...raw === undefined ? {} : { reply: raw.slice(0, 4000) },
+            })
+            return { ok: false as const, error, repair: raw === undefined ? undefined : { raw, error: message } }
+          },
         )
+        let review = await attempt()
+        if (!review.ok && !isAborted(signal)) review = await attempt(review.repair)
         if (isAborted(lifecycle.signal)) return { kind: 'cancel' }
         if (!review.ok) return failed(exec, review.error)
         const { decision } = review
         // The permission owner pins an approval policy into every published Session.
-        if (decision.decision === 'deny' && ctx.approval.overrideOf(agent.session) === 'never') {
-          return denied(exec, decision.reason)
+        const final = decision.decision === 'deny' && ctx.approval.overrideOf(agent.session) === 'never'
+        if (decision.decision === 'deny') {
+          ctx.logger.warn(`auto-review: denied "${exec.name}" (risk ${decision.risk})${decision.reason === undefined ? '' : `: ${decision.reason}`}`)
+          record({
+            event: 'deny', tool: exec.name, risk: decision.risk, reason: decision.reason ?? null,
+            outcome: final ? 'final' : 'ask',
+          })
         }
+        if (final) return denied(exec, decision.reason)
         const downstream = await next()
         if (isAborted(lifecycle.signal)) return { kind: 'cancel' }
         if (decision.decision === 'allow' || downstream.kind !== 'allow') return downstream

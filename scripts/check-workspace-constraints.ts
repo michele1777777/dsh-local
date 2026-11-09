@@ -266,6 +266,10 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-experimental-webworker-packer': ['bin.js', 'lib/repository-*.js'],
   // Startup and runtime share the advertised URL parser.
   '@deepseek-ai/dsh-web-app': ['lib/public-url-*.js'],
+  // The terminal app bundles Ink and React; tsdown emits their shared runtime and the devtools stub as chunks.
+  '@deepseek-ai/dsh-tui-app': ['lib/rolldown-runtime-*.js', 'lib/devtools-*.js'],
+  // The prepared-conversation parser and its type merges are separate entries the Web panel imports.
+  '@deepseek-ai/dsh-prechat': ['lib/text.js', 'lib/types.js'],
   // The headless entry and its startup row share the JSON projection code
   // through a hashed tsdown chunk; both import it by relative path.
   '@deepseek-ai/dsh-headless': ['lib/json-stream-*.js'],

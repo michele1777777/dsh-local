@@ -65,6 +65,7 @@ export class ModelDirectory {
     private readonly projected: ObservableSnapshot<unknown>,
     private readonly isBlank: () => boolean,
     private readonly track?: TrackProductEvent,
+    private readonly openSession?: (sessionId: SessionId) => void,
   ) {
     this.unsubscribeCatalog = catalog.store.subscribe(() => { this.syncInputs() })
     this.unsubscribeSelection = projected.subscribe(() => { this.syncInputs() })
@@ -115,6 +116,7 @@ export class ModelDirectory {
       })
       return result
     }
+    if (result.value.sessionId !== undefined) this.openSession?.(result.value.sessionId)
     if (previous !== null) {
       const from = `${previous.provider}/${previous.model}`
       const to = `${selection.provider}/${selection.model}`

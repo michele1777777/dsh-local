@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Skill commands",
+    "description": "List the skills installed for the current session with /skills."
+  }
+}

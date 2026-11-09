@@ -24,6 +24,7 @@ skill 家族让 agent 和用户仅在需要时发现并加载可复用的任务�
 
 | 包 | 职责 | ctx 键 |
 |---|---|---|
+| [`command-skills/`](command-skills/README.zh.md) | 通过面向人类的 `/skills` 聊天命令列出会话已安装的 skill | 注册到 `ctx.commands` |
 | [`skill/`](skill/README.zh.md) | 合并任意提供方的 skill 目录、并按名称解析出胜出 skill 的注册表 | `ctx.skills` |
 | [`skill-filesystem/`](skill-filesystem/README.zh.md) | 从项目、自定义与用户目录发现 skill，并监视其变更 | 注册到 `ctx.skills` |
 | [`skill-office/`](skill-office/README.zh.md) | 随包提供 Word、PowerPoint 和 Excel 工作流及文件结构检查 | 注册到 `ctx.skills` |

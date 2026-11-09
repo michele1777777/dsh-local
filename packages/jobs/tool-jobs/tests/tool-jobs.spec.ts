@@ -93,6 +93,7 @@ async function fakeAgent(ctx: Context, sessionId: string, delivery: FakeDelivery
     session: { id, header: { version: 0, id, createdAt: 0 } },
   } as unknown as Agent
   // Session projections fold the fake Session when a test logs a notice into it.
+  Object.assign(agent, { inbox: { nextStep: [], nextTurn: [] } })
   Object.assign(agent.session, { inheritedEventCount: 0, snapshotEvents: () => [] })
   const nextStep: ReturnType<typeof createUserMessage>[] = []
   Object.assign(agent, { inbox: { nextStep, nextTurn: [], remove: delivery.remove ?? (() => true) } })

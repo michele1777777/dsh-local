@@ -974,6 +974,18 @@ describe('provider profile lifecycle', () => {
     expect(() => resolveProfiles([{ provider: 'openai' }] as never)).toThrow(/dict keyed by provider/)
     expect(() => resolveProfiles({ openai: { provider: 'openai' } as never })).toThrow(/moved to the providers dict key/)
     expect(() => resolveProfiles({ openai: { baseURL: '' } })).toThrow(/empty baseURL/)
+    expect(() => resolveProfiles({ openai: { baseURLEnv: '' } })).toThrow(/empty baseURLEnv/)
+    // baseURLEnv replaces baseURL only with a non-empty launch-environment value.
+    const environment: Record<string, string> = { LOCAL_URL: 'http://gpu.example:8080/v1', EMPTY_URL: '' }
+    const read = (name: string): string | undefined => environment[name]
+    const local = (baseURLEnv: string) => ({
+      local: { api: 'openai-completions', baseURL: 'http://127.0.0.1:8080/v1', baseURLEnv, models: [{ id: 'local-model' }] },
+    })
+    expect(resolveProfiles(local('LOCAL_URL'), 'strict', read).get('local')?.baseURL).toBe('http://gpu.example:8080/v1')
+    expect(resolveProfiles(local('EMPTY_URL'), 'strict', read).get('local')?.baseURL).toBe('http://127.0.0.1:8080/v1')
+    expect(resolveProfiles(local('UNSET_URL'), 'strict', read).get('local')?.baseURL).toBe('http://127.0.0.1:8080/v1')
+    expect(resolveProfiles(local('LOCAL_URL')).get('local')?.baseURL).toBe('http://127.0.0.1:8080/v1')
+    expect(resolveProfiles(local('LOCAL_URL'), 'strict', read).get('local')).not.toHaveProperty('baseURLEnv')
     expect(() => resolveProfiles({ openai: { apiKeyEnv: 'not-a-var!' } })).toThrow(/must match/)
     expect(() => resolveProfiles({ openai: { maxRequestImageBytes: 0 } })).toThrow(/maxRequestImageBytes/)
     expect(resolveProfiles({ openai: {} }).get('openai')?.maxRequestImageBytes)

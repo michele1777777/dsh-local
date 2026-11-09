@@ -197,7 +197,7 @@ export class SessionLogDeepSeekService extends Service {
       prepare: (request) => {
         if (!config.enabled.get()) return undefined
         // TODO: Define an explicit wire result for direct or stale-session calls if they become a supported product path.
-        if (request.sessionId === undefined) return undefined
+        if (request.sessionId === undefined || request.purpose === 'auto-review') return undefined
         const session = ctx.sessions.get(brandString<SessionId>(request.sessionId))
         if (session === undefined) return undefined
         const upload: SessionLogUploadRequest = {

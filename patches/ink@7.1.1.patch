@@ -1,0 +1,128 @@
+diff --git a/build/measure-text.js b/build/measure-text.js
+index 6934dc529bf94feed37afdf95633e4f36c6aad32..240c0c953eeab17e186dd8f42ee8e253cc69b25c 100644
+--- a/build/measure-text.js
++++ b/build/measure-text.js
+@@ -14,6 +14,8 @@ const measureText = (text) => {
+     const width = widestLine(text);
+     const height = text.split('\n').length;
+     const dimensions = { width, height };
++    // Streaming terminal output must not retain every historical text value.
++    if (cache.size >= 4096) cache.delete(cache.keys().next().value);
+     cache.set(text, dimensions);
+     return dimensions;
+ };
+diff --git a/build/wrap-text.js b/build/wrap-text.js
+index 51f696c64dfefbbae23fc5d575dd17df333bca83..1141700c8b958fbd2aea31788a8c9d34726491db 100644
+--- a/build/wrap-text.js
++++ b/build/wrap-text.js
+@@ -1,9 +1,9 @@
+ import wrapAnsi from 'wrap-ansi';
+ import cliTruncate from 'cli-truncate';
+-const cache = {};
++const cache = new Map();
+ const wrapText = (text, maxWidth, wrapType) => {
+     const cacheKey = text + String(maxWidth) + String(wrapType);
+-    const cachedText = cache[cacheKey];
++    const cachedText = cache.get(cacheKey);
+     if (cachedText) {
+         return cachedText;
+     }
+@@ -31,7 +31,9 @@ const wrapText = (text, maxWidth, wrapType) => {
+         }
+         wrappedText = cliTruncate(text, maxWidth, { position });
+     }
+-    cache[cacheKey] = wrappedText;
++    // Keep the same bound as measure-text; old frames can be recomputed.
++    if (cache.size >= 4096) cache.delete(cache.keys().next().value);
++    cache.set(cacheKey, wrappedText);
+     return wrappedText;
+ };
+ export default wrapText;
+diff --git a/build/ink.js b/build/ink.js
+--- a/build/ink.js
++++ b/build/ink.js
+@@ -154,6 +154,7 @@
+     lastOutput;
+     lastOutputToRender;
+     lastOutputHeight;
++    needsFullRedraw = false;
+     lastTerminalWidth;
+     container;
+     rootNode;
+@@ -652,6 +653,13 @@
+         }
+         await yieldImmediate();
+     }
++    invalidate = () => {
++        // The owner lays out the next tree; never repaint the old tree on resize.
++        this.throttledOnRender?.cancel?.();
++        this.throttledLog?.cancel?.();
++        this.hasPendingThrottledRender = false;
++        this.needsFullRedraw = true;
++    };
+     clear() {
+         if (this.interactive && !this.options.debug) {
+             this.log.clear();
+@@ -753,7 +761,7 @@
+         const viewportRows = isTty ? getWindowSize(this.options.stdout).rows : 24;
+         const isFullscreen = isTty && outputHeight >= viewportRows;
+         const outputToRender = isFullscreen ? output : output + '\n';
+-        const shouldClearTerminal = shouldClearTerminalForFrame({
++        const shouldClearTerminal = this.needsFullRedraw || shouldClearTerminalForFrame({
+             isTty,
+             viewportRows,
+             previousOutputHeight: this.lastOutputHeight,
+@@ -765,7 +773,9 @@
+             if (sync) {
+                 this.options.stdout.write(bsu);
+             }
+-            this.options.stdout.write(ansiEscapes.clearTerminal + this.fullStaticOutput + outputToRender);
++            const clear = this.needsFullRedraw ? '\u001b[H\u001b[2J' : ansiEscapes.clearTerminal;
++            this.needsFullRedraw = false;
++            this.options.stdout.write(clear + this.fullStaticOutput + outputToRender);
+             this.lastOutput = output;
+             this.lastOutputToRender = outputToRender;
+             this.lastOutputHeight = outputHeight;
+diff --git a/build/ink.d.ts b/build/ink.d.ts
+--- a/build/ink.d.ts
++++ b/build/ink.d.ts
+@@ -89,6 +89,7 @@
+     private lastOutput;
+     private lastOutputToRender;
+     private lastOutputHeight;
++    private needsFullRedraw;
+     private lastTerminalWidth;
+     private readonly container;
+     private readonly rootNode;
+@@ -124,6 +125,8 @@
+     unmount(error?: Error | number | null): void;
+     waitUntilExit(): Promise<unknown>;
+     waitUntilRenderFlush(): Promise<void>;
++    /** Invalidate the painted screen; the caller must commit a freshly laid out tree. */
++    invalidate: () => void;
+     clear(): void;
+     patchConsole(): void;
+     registerInputControl(pauseInput: () => void, resumeInput: () => void): void;
+diff --git a/build/render.js b/build/render.js
+--- a/build/render.js
++++ b/build/render.js
+@@ -32,6 +32,7 @@
+             instance.unmount();
+         },
+         clear: instance.clear,
++        invalidate: instance.invalidate,
+     };
+ };
+ export default render;
+diff --git a/build/render.d.ts b/build/render.d.ts
+--- a/build/render.d.ts
++++ b/build/render.d.ts
+@@ -168,6 +168,8 @@
+     Clear output.
+     */
+     clear: () => void;
++    /** Discard pending paint and redraw the next committed frame completely, without clearing scrollback. */
++    invalidate: Ink['invalidate'];
+ };
+ /**
+ Mount a component and render the output.

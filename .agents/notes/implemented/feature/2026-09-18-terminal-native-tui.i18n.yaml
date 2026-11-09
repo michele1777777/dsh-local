@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-18-terminal-native-tui.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-18-terminal-native-tui.md
+/agent-note-terminal-native-presentation-over-the-shared-session-controller:
+  en: 398130146aecb388
+  zh: 45df7b728799e1cd
+/agent-note-terminal-native-presentation-over-the-shared-session-controller/problem:
+  en: 5fd942c7acf7ddc2
+  zh: 9ff26cd19ba7b3ee
+/agent-note-terminal-native-presentation-over-the-shared-session-controller/decision:
+  en: f4b894791868b0b7
+  zh: be39aa100abd0c2f
+/agent-note-terminal-native-presentation-over-the-shared-session-controller/alternatives-considered:
+  en: 7af922abd10ec529
+  zh: 66fa46f8792f5b0e
+/agent-note-terminal-native-presentation-over-the-shared-session-controller/consequences:
+  en: 1b3f3aa8df10d426
+  zh: 81f348ca46617046

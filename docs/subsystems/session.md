@@ -1424,4 +1424,25 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 Types: [Scoped](scope.md)
 
 Source: [`packages/core/session/src/index.ts`](../../packages/core/session/src/index.ts)
+
+<a id="sessionmodel-target--waterfall"></a>
+
+#### `session/model-target` — waterfall
+
+Resolve which live Agent receives a user-selected model, after model validation.
+
+```ts cordis-catalog
+/**
+ * Resolve which live Agent receives a user-selected model, after model validation.
+ * @mode waterfall
+ * @param payload - source Agent and resolved selection.
+ * @param next - next target resolver; defaults to the source Agent.
+ * @returns the Agent to configure, which may be a newly created blank Session.
+ */
+'session/model-target'(payload: { agent: Agent; selected: import('@deepseek-ai/dsh-agent').ModelSelection }, next: () => Promise<Agent>): Promise<Agent>
+```
+
+Types: [Agent](core.md) · [ModelSelection](core.md)
+
+Source: [`packages/api/session-controller/src/index.ts`](../../packages/api/session-controller/src/index.ts)
 <!-- END GENERATED cordis-surface -->

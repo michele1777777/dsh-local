@@ -1,12 +1,13 @@
-Usage: dsh [--profile] <name> [options] [app-args...]
+Usage: dsh [options] [chat-args...]
+       dsh [--profile] <name> [options] [app-args...]
        dsh plugin --profile <name> <pnpm-args...>
 
 dsh: boot a DeepSeek Harness profile — an ordered stack of plugin-bundle patch
 layers under your own overrides.
 
 Arguments:
-  args                           arguments for the booted profile's app (see:
-                                 dsh --profile <name> --help)
+  args                           arguments for the booted profile's app, or the
+                                 chat's (see: dsh --profile <name> --help)
 
 Options:
   -V, --version                  output the version number
@@ -21,12 +22,21 @@ Options:
   --dump-default-config          print the profile tree without its user layer
                                  or --patch overlays and exit
 
+A leading word boots a profile when it names a shipped profile, an existing
+$DSH_HOME/profiles/<name>, or is followed by a launcher flag; otherwise the
+words open the terminal chat (the tui profile) as its prompt.
+
 Examples:
-  dsh web                                   boot the web profile (same as: dsh --profile web)
+  dsh                                       open the terminal chat in this directory
+  dsh "fix the failing tests"               open the chat with an opening prompt
+  dsh --continue                            continue this directory's most recent Session
+  dsh --resume [session]                    resume a Session, or pick one of this directory
+  dsh -- web                                open the chat with the prompt "web"
+  dsh web                                   boot the web profile (same as: dsh --web, dsh --profile web)
   dsh rescue --from-default-profile web
                                             recreate rescue from the shipped web template, then boot it
   dsh headless "run the tests"              answer one task, print the result, and exit
-  dsh tui --patch ./extra.yml               boot a custom profile with one extra overlay
-  dsh tui --resume <session>                arguments after the launcher flags reach the app
+  dsh tui --patch ./extra.yml               boot a profile with one extra overlay
+  dsh tui --help                            the terminal chat's own flags and help
   dsh web --help                            the web app's own flags and help
   dsh plugin --profile tui add <package>    install a plugin into the tui profile

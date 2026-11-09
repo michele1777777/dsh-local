@@ -11,7 +11,7 @@ import type { EncodedImageAttachment, FileAttachmentRef, ImageAttachmentRef } fr
 import type { FileBlock, ImageBlock } from '@deepseek-ai/dsh-llm'
 import { NamedEntries, ScopedLayers } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, ScopeLayer } from '@deepseek-ai/dsh-scope'
-import { SessionSeq } from '@deepseek-ai/dsh-session'
+import { SessionSeq, SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import { CommandId } from './brand.ts'
@@ -73,6 +73,8 @@ export interface CommandDefinition {
    * that payload in the session log.
    */
   readonly recordInput?: boolean
+  /** Fresh capability predicate, checked for discovery and again before execution. */
+  readonly available?: (agent: Agent) => boolean
   /** Execute against the receiving agent without sending the command to the model. */
   readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>
 }
@@ -214,6 +216,7 @@ function normalizeDefinition(definition: CommandDefinition): RegisteredCommand {
     ...input === undefined ? {} : { input },
     ...definition.recordInput === undefined ? {} : { recordInput: definition.recordInput },
     handler: definition.handler,
+    ...(definition.available === undefined ? {} : { available: definition.available }),
   })
   const descriptor = Object.freeze({
     ...normalized.definitionId === undefined ? {} : { definitionId: normalized.definitionId },
@@ -229,8 +232,9 @@ function normalizeResult(command: string, value: unknown): CommandResult {
   if (typeof value !== 'object' || value === null || !('kind' in value)) {
     throw new TypeError(`command "${command}" handler must return a CommandResult`)
   }
-  const result = value as { kind?: unknown; text?: unknown; sourceEventSeq?: unknown }
+  const result = value as { kind?: unknown; text?: unknown; sourceEventSeq?: unknown; sessionId?: unknown }
   if (result.kind === 'success') {
+    if (result.sessionId !== undefined && (typeof result.sessionId !== 'string' || result.sessionId.trim() === '')) throw new TypeError('Command sessionId must be a non-empty string')
     if (result.text !== undefined && typeof result.text !== 'string') {
       throw new TypeError(`command "${command}" success text must be a string when supplied`)
     }
@@ -242,6 +246,7 @@ function normalizeResult(command: string, value: unknown): CommandResult {
     }
     return Object.freeze({
       kind: 'success',
+      ...(result.sessionId === undefined ? {} : { sessionId: SessionId(result.sessionId) }),
       ...result.text === undefined ? {} : { text: result.text },
       ...result.sourceEventSeq === undefined ? {} : { sourceEventSeq: SessionSeq(result.sourceEventSeq as number) },
     })
@@ -314,6 +319,7 @@ export class CommandRuntime extends TypertRemoteService {
   @Remote
   list(agent: Agent): readonly CommandDescriptor[] {
     return Object.freeze([...this.view(agent).values()]
+      .filter(command => command.definition.available?.(agent) !== false)
       .map(command => command.descriptor)
       // Names are unique in the effective view, so equality is impossible.
       .sort((left, right) => left.name < right.name ? -1 : 1))
@@ -326,7 +332,8 @@ export class CommandRuntime extends TypertRemoteService {
    * @returns the scoped shadow or global definition.
    */
   find(agent: Agent, name: string): CommandDefinition | undefined {
-    return this.view(agent).get(name)?.definition
+    const definition = this.view(agent).get(name)?.definition
+    return definition?.available?.(agent) === false ? undefined : definition
   }
 
   /**
@@ -368,6 +375,7 @@ export class CommandRuntime extends TypertRemoteService {
     if (parsed === undefined) return undefined
     const command = this.view(agent).get(parsed.name)
     if (command === undefined) return undefined
+    if (command.definition.available?.(agent) === false) throw new Error(`/${parsed.name} is unavailable for the selected model`)
     if (signal.aborted) throw abortError(signal)
     const commandId = this.mintCommandId()
     this.appendLifecycle(agent.session, 'command/run', {

@@ -87,7 +87,7 @@ The system-prompt contribution `approval:policy` states the complete current mea
 
 ### Audit
 
-`request()` appends `approval/asked` with the request identity and tool, then `approval/decided` with the closed outcome; the exact appended fields live in [`src/index.ts`](src/index.ts). Both are log-only.
+`request()` appends `approval/asked` with the request identity and tool, then `approval/decided` with the closed outcome; the exact appended fields live in [`src/index.ts`](src/index.ts). Both are log-only. `recordReview()` attaches validated optional machine-review metadata to the active request without changing its identity, authoritative outcome or model context. The metadata is isolated per asynchronous request, including concurrent calls that borrow the same object. See [Smart approval](../smart-approval/README.md) for the optional reviewer.
 
 </details>
 

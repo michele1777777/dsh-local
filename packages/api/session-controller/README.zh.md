@@ -115,6 +115,10 @@ Blockquote 作为普通 prompt 文本传递，不携带 quote 元数据。本地
 空的 `prompt.content` 数组仅在普通 Session 空闲、最新失败符合继续条件且使用 queue 模式时请求新轮次。待消费的用户输入阻止准入，非唤醒的注入上下文保留。`conversationContinuation` 提供共用的六码手动策略，独立于提供方重试配置。输入遵循普通 inbox 和 Loop 准入，记录带 `source.kind: 'retry'` 的空 `user/message`；输入身份与调用方元数据用于去重和恢复。仅含空白的文本块仍无效。
 
 <a id="model-experience"></a>
+## 模型选择目标
+
+`session/model-target` waterfall 在模型验证后、安装选择前执行。若当前历史限制为某个模型，插件可以先委托再返回新的 Agent。目标不同时，`selectModel` 返回 `sessionId`，交互客户端据此跳转。原会话保持不变；待用模型选择和默认值保存应用于返回的目标。
+
 ## 模型体验
 
 无；任何模型可见效果都由被调用的 Agent 命令负责。

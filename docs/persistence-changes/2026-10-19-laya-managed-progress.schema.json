@@ -1,0 +1,21 @@
+{
+  "formatVersion": 2,
+  "roots": [
+    {"key":"event:laya-pruner/progress","kind":"event","event":"laya-pruner/progress","surface":false,"digest":"aafcbeac8594732d10ff0507e2f4633dad8e4568a0d412104fa044db3e86eb0a"}
+  ],
+  "types": [],
+  "nodes": {
+    "0657d3ca5ac4e7bf": {"kind":"primitive","type":"number"},
+    "22cf02ef53a22801": {"kind":"union","types":["471581d8cce4fb22","57f3f606ff8b6c84","6022451d897c7050","90bf19103b744fa2","a1727262601ea4c6"]},
+    "2ee3882ddce24174": {"kind":"literal","value":"laya-pruner/progress"},
+    "471581d8cce4fb22": {"kind":"literal","value":"release"},
+    "4cd48f3e5108bd6e": {"kind":"primitive","type":"string"},
+    "57f3f606ff8b6c84": {"kind":"literal","value":"stop"},
+    "6022451d897c7050": {"kind":"literal","value":"start"},
+    "90bf19103b744fa2": {"kind":"literal","value":"restore"},
+    "a1727262601ea4c6": {"kind":"literal","value":"prune"},
+    "aafcbeac8594732d": {"kind":"object","properties":[{"name":"data","type":"ee9cb4050ffa7ea8","optional":false},{"name":"ignorable","type":"dacf3d5f3e4ff619","optional":true},{"name":"seq","type":"0657d3ca5ac4e7bf","optional":false},{"name":"time","type":"0657d3ca5ac4e7bf","optional":false},{"name":"type","type":"2ee3882ddce24174","optional":false}],"indices":[]},
+    "dacf3d5f3e4ff619": {"kind":"literal","value":true},
+    "ee9cb4050ffa7ea8": {"kind":"object","properties":[{"name":"phase","type":"22cf02ef53a22801","optional":false},{"name":"pruneId","type":"4cd48f3e5108bd6e","optional":false},{"name":"turn","type":"0657d3ca5ac4e7bf","optional":false}],"indices":[]}
+  }
+}

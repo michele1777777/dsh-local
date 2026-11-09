@@ -31,6 +31,8 @@ kind: "package-reference"
 
 自动生成只对无父会话、也无先前标题的全新会话运行：在其第一条符合条件用户消息之后，创建回退并发出一次辅助请求来总结该消息。后续提示词、显式用户重命名与继承的 fork 历史都不会触发再次自动调用。自动失败会保留回退；`ctx.sessionTitle.refresh()` 是显式重试。fork 会保留继承的标题，绝不会自动运行此提供方，即使其预置的首消息来自父会话。
 
+以 `/goal <objective>` 开始的会话没有人类消息：其第一轮归属于目标。当此类会话的第一个轮次完成路由（对恢复的会话而言是下一个轮次开始）时，提供方用同一指令总结目标 objective，并通过 `ctx.sessionTitle.rename()` 记录结果，因为自动标题必须引用人类消息；调用失败时，会以 objective 开头的 `targetWords` 个词重命名。该调用没有 `session/title-llm-request` 记录，标题的行为与用户重命名相同：`refresh()` 会重新生成它。
+
 ### 配置
 
 插件要求 `targetWords` 与 `targetCjkCharacters`，外加共享的[执行控制](../session-title-llm/README.zh.md#configuration)：`maxInputBytes`、`maxOutputTokens`、`timeoutMs`，以及可选成对的 `provider`/`model` 路由。同时省略二者，会继承当前已记录主请求的确切路由；同时设置二者，则让标题生成使用独立路由。生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-session-title-first-prompt-llm)是每个受支持字段的穷尽式真源。

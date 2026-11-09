@@ -67,6 +67,7 @@ function submittedCommandName(line: string): string {
 
 /** Live mutable state in one holder (service methods run behind the caller-ctx tracker). */
 interface LiveState {
+  readonly watchedBindings: WeakSet<SessionBinding>
   readonly contributions: Map<string, CommandContribution>
   readonly decorations: Map<string, CommandDecoration>
   readonly popups: WeakMapWithValues<SessionBinding, PopupSelectController<ClientSessionContext>>
@@ -78,6 +79,7 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
 
   private readonly directory: CommandDirectory
   private readonly live: LiveState = {
+    watchedBindings: new WeakSet(),
     contributions: new Map(),
     decorations: new Map(),
     popups: new WeakMapWithValues(),
@@ -97,8 +99,16 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
     this.directory = new CommandDirectory(async (sessionId) => {
       const sessions = this.sessions()
       if (sessions.subagentAddress(sessionId) !== undefined) return []
-      if (sessions.binding(sessionId) === undefined) {
+      const binding = sessions.binding(sessionId)
+      if (binding === undefined) {
         throw new Error(`command catalog requires a retained session "${sessionId}"`)
+      }
+      if (!this.live.watchedBindings.has(binding)) {
+        this.live.watchedBindings.add(binding)
+        const selection = binding.session.projections.faceOf('modelSelection')
+        // Model-dependent availability must not leave a stale slash command
+        // classified as an ordinary prompt after a model switch.
+        binding.ctx.effect(() => selection.subscribe(() => { this.directory.resetSession(sessionId) }), 'command: model availability')
       }
       return sessions.using(sessionId, { source: 'commandCatalog' }, async (reference) => {
         const state = reference.binding.session.getSnapshot()

@@ -233,3 +233,5 @@ Serialization of the empty retry message depends on the adapter. Prefix reuse de
 None.
 
 </details>
+
+During a running turn, Enter and Send default to Steer so a human message can release a foreground job wait. Ctrl/Cmd+Enter queues explicitly. The conversation settings can reverse these gestures; an explicitly saved preference remains authoritative.

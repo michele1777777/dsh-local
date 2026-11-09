@@ -241,6 +241,7 @@ export const EVENT_SCOPE_PAGE: Record<string, string> = {
   'agent-preset': 'core.md',
   'api-session': 'session.md',
   'approval': 'approval.md',
+  'smart-approval': 'approval.md',
   'commands': 'commands.md',
   'connection': 'web-server.md',
   'compaction': 'compaction.md',
@@ -987,6 +988,8 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
+  ReviewStatus: 'Smart approval review status is owned by packages/interaction/smart-approval/src/index.ts',
+  ApprovalReview: 'machine-review metadata of an approval is owned by packages/interaction/user-approval/src/index.ts',
   ActionCardDecision: 'packages/experimental/action-cards/README.md',
   ActionCardKind: 'packages/experimental/action-cards/README.md',
   ActionCardResult: 'packages/experimental/action-cards/README.md',

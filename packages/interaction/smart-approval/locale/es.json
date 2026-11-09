@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Aprobación inteligente",
+    "description": "Un modelo revisor aprueba las llamadas rutinarias a herramientas y le consulta las demás."
+  }
+}

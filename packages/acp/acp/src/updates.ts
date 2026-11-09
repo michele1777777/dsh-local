@@ -76,11 +76,15 @@ export async function toolResultUpdate(
     const converted = await assistantBlockToAcp(ctx, block)
     if (converted !== undefined) content.push({ type: 'content' as const, content: converted })
   }
+  const error = event.data.error
   return {
     sessionUpdate: 'tool_call_update',
     toolCallId: message.toolCallId,
     status: message.isError === true ? 'failed' : 'completed',
     content,
+    // Failure identity and user-facing reason (for example an Auto review denial)
+    // live outside model content; clients get them as the standard raw output.
+    ...message.isError === true && error !== undefined ? { rawOutput: { error } } : {},
   }
 }
 

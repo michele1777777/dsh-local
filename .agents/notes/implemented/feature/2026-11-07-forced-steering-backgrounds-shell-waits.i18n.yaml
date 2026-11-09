@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-11-07-forced-steering-backgrounds-shell-waits.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-11-07-forced-steering-backgrounds-shell-waits.md
+/agent-note-forced-steering-backgrounds-shell-waits:
+  en: 7fb6706308eac988
+  zh: 320aa7db74cd9307
+/agent-note-forced-steering-backgrounds-shell-waits/problem:
+  en: 30058882073b928d
+  zh: 3da388cf6036599f
+/agent-note-forced-steering-backgrounds-shell-waits/decision:
+  en: 33e55230161e84be
+  zh: d0b998684f5c1734
+/agent-note-forced-steering-backgrounds-shell-waits/alternatives-considered:
+  en: 26280eb1563a8a0a
+  zh: d1a4872446b4e076
+/agent-note-forced-steering-backgrounds-shell-waits/consequences:
+  en: 7766639dbc30c0dd
+  zh: 79bca75881bfca4b

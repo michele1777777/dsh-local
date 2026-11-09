@@ -1229,6 +1229,25 @@ A provider's advertised models or display metadata changed; consumers reload `li
 
 Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 
+<a id="llmpreserve-context--bail"></a>
+
+#### `llm/preserve-context` — bail
+
+Opt a request into provider-supported retention of interleaved contexts. This changes transport policy only, never the model-visible request.
+
+```ts cordis-catalog
+/**
+ * Opt a request into provider-supported retention of interleaved contexts.
+ * This changes transport policy only, never the model-visible request.
+ * @param options - frozen request whose owning session selects the policy.
+ * @returns true to retain contexts, undefined to leave the normal policy.
+ * @mode bail
+ */
+'llm/preserve-context'(options: GenerateOptions): true | void
+```
+
+Source: [`packages/llm/llm/src/index.ts`](../../packages/llm/llm/src/index.ts)
+
 <a id="llmstream--waterfall"></a>
 
 #### `llm/stream` — waterfall

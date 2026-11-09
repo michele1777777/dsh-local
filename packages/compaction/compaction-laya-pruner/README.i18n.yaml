@@ -1,0 +1,67 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/compaction/compaction-laya-pruner/README.md
+/:
+  en: 583d620e28278a60
+  zh: 734de983ff6a7b41
+/deepseek-ai-dsh-compaction-laya-pruner:
+  en: bf28734bc6863277
+  zh: 349ca6abc3e47627
+/deepseek-ai-dsh-compaction-laya-pruner/summary:
+  en: ad313887c7b93058
+  zh: 026c5358de958651
+/deepseek-ai-dsh-compaction-laya-pruner/table-of-contents:
+  en: 4a9405ab6386f7e1
+  zh: a31ea36a25444c7f
+/deepseek-ai-dsh-compaction-laya-pruner/use-this-package:
+  en: 425a19f2fd3ab08c
+  zh: fac62452b131c285
+/deepseek-ai-dsh-compaction-laya-pruner/decision-service-protocol:
+  en: 37266deb88431fd5
+  zh: 26395ce72f33567b
+/deepseek-ai-dsh-compaction-laya-pruner/decision-service-protocol/request:
+  en: 6ce5809137836c57
+  zh: b3edf95b002a904c
+/deepseek-ai-dsh-compaction-laya-pruner/decision-service-protocol/response:
+  en: 54dc22fcf66b5c19
+  zh: dc59d50ddcd81756
+/deepseek-ai-dsh-compaction-laya-pruner/decision-service-protocol/example:
+  en: b9b5449b4e5cc2bf
+  zh: fa9be57f4cf4a267
+/deepseek-ai-dsh-compaction-laya-pruner/decision-service-protocol/what-dsh-applies:
+  en: ddbe657ee494d5bc
+  zh: aa01f2df3a1e92f0
+/deepseek-ai-dsh-compaction-laya-pruner/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-compaction-laya-pruner/model-experience/pruned-conversation-history:
+  en: 45ec210c35c88bea
+  zh: 15c5dafd58a2f7b9
+/deepseek-ai-dsh-compaction-laya-pruner/model-experience/pruned-conversation-history/what-the-model-sees:
+  en: 68467f4e46e03060
+  zh: 9b55af74d851f4e6
+/deepseek-ai-dsh-compaction-laya-pruner/model-experience/pruned-conversation-history/token-effect:
+  en: d57a2134f77eb983
+  zh: 88a4e8cffcc5451a
+/deepseek-ai-dsh-compaction-laya-pruner/model-experience/pruned-conversation-history/kv-cache-effect:
+  en: 23043be84949551f
+  zh: 1394be8b844e73b1
+/deepseek-ai-dsh-compaction-laya-pruner/model-experience/pruning-progress-records:
+  en: 24d7c8a225e5c95a
+  zh: ccc5bb838c9e3d8c
+/deepseek-ai-dsh-compaction-laya-pruner/model-experience/pruning-progress-records/what-the-model-sees:
+  en: e49e3ddca53e9297
+  zh: 50c6cb63376798bc
+/deepseek-ai-dsh-compaction-laya-pruner/model-experience/pruning-progress-records/token-effect:
+  en: 6744390817438382
+  zh: dd0866710ca93ba5
+/deepseek-ai-dsh-compaction-laya-pruner/model-experience/pruning-progress-records/kv-cache-effect:
+  en: 9421910922f83be7
+  zh: 381a62fe8db5d8c4
+/deepseek-ai-dsh-compaction-laya-pruner/known-limitations-and-deferred-work:
+  en: 35e0950f0a29b58b
+  zh: e2567a112cefab66
+/deepseek-ai-dsh-compaction-laya-pruner/known-limitations-and-deferred-work/dev-note:
+  en: 644042b6b9069749
+  zh: 3a5bba6398cb579d

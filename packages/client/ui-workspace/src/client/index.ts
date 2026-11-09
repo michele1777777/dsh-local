@@ -1,3 +1,4 @@
+import type {} from '@deepseek-ai/dsh-client-ui-commands/client'
 import { IconEditOutlineRegular, IconTrashOutlineRegular, IconPinFillRegular, IconPinOutlineRegular, IconUnarchiveOutlineRegular, IconArchiveOutlineRegular, IconBranchOutlineRegular, IconCopyOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { SessionMenu } from './session-actions/SessionMenu.tsx'
 import type {} from '@deepseek-ai/dsh-client-ui-context-menu/client'
@@ -154,6 +155,12 @@ export function apply(ctx: Context): void {
     subscribe: listener => ctx.on('connection/reset', listener),
   }
   const pickerFlowSource = flowSource('conversation.hero.workspace.directoryFlow')
+  ctx.inject(['commandUi'], (scope) => {
+    scope.on('command/executed', (_source, _name, result) => {
+      if (result.kind === 'success' && result.sessionId !== undefined) uiWorkspace.openSession(result.sessionId)
+    })
+  })
+
   const openSession: WorkspaceBrowserInjected['open'] = (sessionId) => {
     uiWorkspace.openSession(sessionId)
   }

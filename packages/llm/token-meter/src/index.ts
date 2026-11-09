@@ -36,7 +36,7 @@ import type { ContextPressureState } from './usage-projection.ts'
 import { estimateMessage, estimateToolsTokens } from './estimate.ts'
 import { advanceMeasurement, measurementProjectionDefinition } from './measurement-projection.ts'
 import type { MeasurementState } from './measurement-projection.ts'
-import { commitSurfaceTokens, planSurfaceTokens } from './surface-fold.ts'
+import { analyzeNode, commitSurfaceTokens, planSurfaceTokens } from './surface-fold.ts'
 import type { MeterSurfaceNode } from './surface-fold.ts'
 import { priceSurface } from './route-pricing.ts'
 
@@ -256,6 +256,7 @@ export class TokenMeter extends Service {
         advanceMeasurement(measurement, event)
       }
       this._foldEvent(state, event)
+      this._repriceRewrites(state, session, event)
       if (next !== undefined) state.pendingMeasurement = next
       state.consumedEvents = SessionLogOffset(state.consumedEvents + 1)
     }
@@ -268,6 +269,23 @@ export class TokenMeter extends Service {
     }
     // An initialized registration supplies `projected`; earlier reads keep the same pure fold locally.
     return { prices: state, measurement: projected ?? state.pendingMeasurement }
+  }
+
+  /**
+   * `laya-pruner/rewrite` is a message projection that shortens agent messages (kept text lines, dropped
+   * reasoning). Nodes are otherwise priced from their raw event message, so the targets are repriced from the
+   * session's projected message; the matched name avoids a token-meter -> laya-pruner package dependency.
+   */
+  private _repriceRewrites(state: ReplayState, session: Session, event: SessionEvent): void {
+    if ((event.type as string) !== 'laya-pruner/rewrite') return
+    const targets = (event.data as { targets?: ReadonlyArray<{ seq?: unknown }> }).targets ?? []
+    const seqs = new Set(targets.map(t => t.seq).filter((seq): seq is SessionSeq => typeof seq === 'number'))
+    state.surface = state.surface.map((node) => {
+      if (!seqs.has(node.seq)) return node
+      // oxlint-disable-next-line typescript/no-deprecated -- same history read as the fold above.
+      const source = session.eventAt(node.seq)
+      return source === undefined ? node : { ...analyzeNode(node.seq, session.deriveEventMessage(source)), images: node.images }
+    })
   }
 
   /** Update only discardable positional prices and the pre-assistant view. */

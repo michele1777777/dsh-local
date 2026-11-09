@@ -25,7 +25,8 @@ export function apply(ctx: Context, config: Config): void {
     if (!texts.some(text => text.includes('"role": "user-instruction"'))) {
       throw new Error('headless task has no user authority')
     }
-    const pending = texts.at(-1) ?? ''
+    // The pending call is the last review message; a retry appends the rejected reply after it.
+    const pending = texts.findLast(text => !text.startsWith('REJECTED_PREVIOUS_REPLY\n')) ?? ''
     const mode = config.mode ?? (pending.includes('denied.txt') ? 'deny'
       : pending.includes('malformed.txt') ? 'malformed'
         : pending.includes('failed.txt') ? 'failed' : 'allow')

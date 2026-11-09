@@ -1,0 +1,450 @@
+# Local-first host plane for this distribution, layered right after @deepseek-ai/dsh-base.
+#
+# Every route below talks to an OpenAI-compatible server on one address. Set DSH_LOCAL_LLM_URL to reach a
+# server on another machine (default http://127.0.0.1:8080/v1) and DSH_LOCAL_LLM_API_KEY to any value when
+# the server checks no key. One server process serves one model at a time; the summary routes reuse it.
+#
+# Each conversation route has a summary twin (`*-summary`) with reasoning off and its own output budget,
+# so context compaction never spends its output budget thinking.
+
+# Example local routes. A layer that patches this row replaces the whole provider dictionary, so a
+# deployment that adds its own routes repeats these entries.
+- id: llm-pi-ai
+  config:
+    providers:
+
+      # Qwen3.8 Flash Next served by TabbyAPI with exllamav3. The thinking switch travels in
+      # chat_template_kwargs (TabbyAPI's template_vars), so these routes use the chat-template format. The
+      # template's levels are low, medium and xhigh (high renders as xhigh); off sends enable_thinking false.
+      # contextWindow must match the server's max_seq_len.
+      qwen-flash:
+        displayName: qwen38 flash
+        apiKeyEnv: DSH_LOCAL_LLM_API_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:8080/v1
+        baseURLEnv: DSH_LOCAL_LLM_URL
+        sessionCache: true
+        reasoning: xhigh
+        streamIdleTimeoutMs: 1800000
+
+        # Retry bodyless transport failures before treating them as context overflow.
+        retryPolicy:
+          mode: normal
+          maxRetries: 3
+          retryableCodes:
+            - EMPTY_RESPONSE
+            - RATE_LIMIT
+            - SERVER
+            - TIMEOUT
+            - TRANSPORT
+            - CONTEXT_WINDOW_EXCEEDED
+
+        compat:
+          thinkingFormat: chat-template
+          chatTemplateKwargs:
+            enable_thinking:
+              $var: thinking.enabled
+            reasoning_effort:
+              $var: thinking.effort
+              omitWhenOff: true
+          supportsReasoningEffort: true
+
+        models:
+          - id: qwen3.8-next-flash
+            name: Qwen3.8 Flash Next
+            contextWindow: 184320
+            # 36000 keeps the compaction trigger at 80% of the window (~147k):
+            # 184320 - 36000 > 0.8 x 184320.
+            maxTokens: 36000
+            input:
+              - text
+              - image
+            reasoningEfforts:
+              off:
+              low: low
+              medium: medium
+              xhigh: xhigh
+
+      qwen-flash-summary:
+        displayName: qwen38 flash summary
+        apiKeyEnv: DSH_LOCAL_LLM_API_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:8080/v1
+        baseURLEnv: DSH_LOCAL_LLM_URL
+        sessionCache: true
+        reasoning: off
+        streamIdleTimeoutMs: 1800000
+
+        # Retry bodyless transport failures before treating them as context overflow.
+        retryPolicy:
+          mode: normal
+          maxRetries: 3
+          retryableCodes:
+            - EMPTY_RESPONSE
+            - RATE_LIMIT
+            - SERVER
+            - TIMEOUT
+            - TRANSPORT
+            - CONTEXT_WINDOW_EXCEEDED
+
+        compat:
+          thinkingFormat: chat-template
+          chatTemplateKwargs:
+            enable_thinking:
+              $var: thinking.enabled
+            reasoning_effort:
+              $var: thinking.effort
+              omitWhenOff: true
+          supportsReasoningEffort: true
+
+        models:
+          - id: qwen3.8-next-flash
+            name: Qwen3.8 Flash Next Summary
+            contextWindow: 184320
+            maxTokens: 32768
+            input:
+              - text
+            reasoningEfforts:
+              off:
+              low: low
+              medium: medium
+              xhigh: xhigh
+
+      # Qwen3.8 27B (dense) on the same TabbyAPI + exllamav3 server, in place of Flash Next. Same chat template,
+      # thinking levels and managed pruning endpoint as qwen-flash; contextWindow matches the server's max_seq_len.
+      qwen-27b:
+        displayName: qwen38 27B
+        apiKeyEnv: DSH_LOCAL_LLM_API_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:8080/v1
+        baseURLEnv: DSH_LOCAL_LLM_URL
+        sessionCache: true
+        reasoning: xhigh
+        streamIdleTimeoutMs: 1800000
+
+        # Retry bodyless transport failures before treating them as context overflow.
+        retryPolicy:
+          mode: normal
+          maxRetries: 3
+          retryableCodes:
+            - EMPTY_RESPONSE
+            - RATE_LIMIT
+            - SERVER
+            - TIMEOUT
+            - TRANSPORT
+            - CONTEXT_WINDOW_EXCEEDED
+
+        compat:
+          thinkingFormat: chat-template
+          chatTemplateKwargs:
+            enable_thinking:
+              $var: thinking.enabled
+            reasoning_effort:
+              $var: thinking.effort
+              omitWhenOff: true
+          supportsReasoningEffort: true
+
+        models:
+          - id: qwen3.8-27b
+            name: Qwen3.8 27B
+            contextWindow: 184320
+            # 36000 keeps the compaction trigger at 80% of the window (~147k):
+            # 184320 - 36000 > 0.8 x 184320.
+            maxTokens: 36000
+            input:
+              - text
+              - image
+            reasoningEfforts:
+              off:
+              low: low
+              medium: medium
+              xhigh: xhigh
+
+      qwen-27b-summary:
+        displayName: qwen38 27B summary
+        apiKeyEnv: DSH_LOCAL_LLM_API_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:8080/v1
+        baseURLEnv: DSH_LOCAL_LLM_URL
+        sessionCache: true
+        reasoning: off
+        streamIdleTimeoutMs: 1800000
+
+        # Retry bodyless transport failures before treating them as context overflow.
+        retryPolicy:
+          mode: normal
+          maxRetries: 3
+          retryableCodes:
+            - EMPTY_RESPONSE
+            - RATE_LIMIT
+            - SERVER
+            - TIMEOUT
+            - TRANSPORT
+            - CONTEXT_WINDOW_EXCEEDED
+
+        compat:
+          thinkingFormat: chat-template
+          chatTemplateKwargs:
+            enable_thinking:
+              $var: thinking.enabled
+            reasoning_effort:
+              $var: thinking.effort
+              omitWhenOff: true
+          supportsReasoningEffort: true
+
+        models:
+          - id: qwen3.8-27b
+            name: Qwen3.8 27B Summary
+            contextWindow: 184320
+            maxTokens: 32768
+            input:
+              - text
+            reasoningEfforts:
+              off:
+              low: low
+              medium: medium
+              xhigh: xhigh
+
+      # DeepSeek V4 Flash and V4.1 Flash served by a ds4 server. The GGUF loaded at startup selects
+      # the model; both ids are accepted aliases. Thinking uses the deepseek format: off sends a disabled
+      # thinking object, low and medium render as high, and max selects Think Max (normal thinking when the
+      # context is too small). contextWindow must match the server's --ctx.
+      ds4-v4-flash:
+        displayName: ds4 V4 flash
+        apiKeyEnv: DSH_LOCAL_LLM_API_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:8080/v1
+        baseURLEnv: DSH_LOCAL_LLM_URL
+        sessionCache: true
+        reasoning: high
+        streamIdleTimeoutMs: 1800000
+
+        retryPolicy:
+          mode: normal
+          maxRetries: 3
+          retryableCodes:
+            - EMPTY_RESPONSE
+            - RATE_LIMIT
+            - SERVER
+            - TIMEOUT
+            - TRANSPORT
+
+        compat:
+          supportsStore: false
+          supportsDeveloperRole: false
+          supportsReasoningEffort: true
+          supportsUsageInStreaming: true
+          maxTokensField: max_tokens
+          supportsStrictMode: false
+          thinkingFormat: deepseek
+          requiresReasoningContentOnAssistantMessages: true
+
+        models:
+          - id: deepseek-v4-flash
+            name: DeepSeek V4 Flash (local)
+            contextWindow: 184320
+            # 36000 keeps the compaction trigger at 80% of the window (~147k), as for Qwen3.8 Flash Next.
+            maxTokens: 36000
+            input:
+              - text
+            reasoningEfforts:
+              off:
+              high: high
+              max: max
+
+      ds4-v4-flash-summary:
+        displayName: ds4 V4 flash summary
+        apiKeyEnv: DSH_LOCAL_LLM_API_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:8080/v1
+        baseURLEnv: DSH_LOCAL_LLM_URL
+        sessionCache: true
+        reasoning: off
+        streamIdleTimeoutMs: 1800000
+
+        retryPolicy:
+          mode: normal
+          maxRetries: 3
+          retryableCodes:
+            - EMPTY_RESPONSE
+            - RATE_LIMIT
+            - SERVER
+            - TIMEOUT
+            - TRANSPORT
+
+        compat:
+          supportsStore: false
+          supportsDeveloperRole: false
+          supportsReasoningEffort: true
+          supportsUsageInStreaming: true
+          maxTokensField: max_tokens
+          supportsStrictMode: false
+          thinkingFormat: deepseek
+          requiresReasoningContentOnAssistantMessages: true
+
+        models:
+          - id: deepseek-v4-flash
+            name: DeepSeek V4 Flash Summary (local)
+            contextWindow: 184320
+            maxTokens: 32768
+            input:
+              - text
+            reasoningEfforts:
+              off:
+              high: high
+              max: max
+
+      ds4-v41-flash:
+        displayName: ds4 V4.1 flash
+        apiKeyEnv: DSH_LOCAL_LLM_API_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:8080/v1
+        baseURLEnv: DSH_LOCAL_LLM_URL
+        sessionCache: true
+        reasoning: high
+        streamIdleTimeoutMs: 1800000
+
+        retryPolicy:
+          mode: normal
+          maxRetries: 3
+          retryableCodes:
+            - EMPTY_RESPONSE
+            - RATE_LIMIT
+            - SERVER
+            - TIMEOUT
+            - TRANSPORT
+
+        compat:
+          supportsStore: false
+          supportsDeveloperRole: false
+          supportsReasoningEffort: true
+          supportsUsageInStreaming: true
+          maxTokensField: max_tokens
+          supportsStrictMode: false
+          thinkingFormat: deepseek
+          requiresReasoningContentOnAssistantMessages: true
+
+        models:
+          - id: deepseek-v4.1-flash
+            name: DeepSeek V4.1 Flash (local)
+            contextWindow: 184320
+            maxTokens: 36000
+            input:
+              - text
+              - image
+            reasoningEfforts:
+              off:
+              high: high
+              max: max
+
+      ds4-v41-flash-summary:
+        displayName: ds4 V4.1 flash summary
+        apiKeyEnv: DSH_LOCAL_LLM_API_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:8080/v1
+        baseURLEnv: DSH_LOCAL_LLM_URL
+        sessionCache: true
+        reasoning: off
+        streamIdleTimeoutMs: 1800000
+
+        retryPolicy:
+          mode: normal
+          maxRetries: 3
+          retryableCodes:
+            - EMPTY_RESPONSE
+            - RATE_LIMIT
+            - SERVER
+            - TIMEOUT
+            - TRANSPORT
+
+        compat:
+          supportsStore: false
+          supportsDeveloperRole: false
+          supportsReasoningEffort: true
+          supportsUsageInStreaming: true
+          maxTokensField: max_tokens
+          supportsStrictMode: false
+          thinkingFormat: deepseek
+          requiresReasoningContentOnAssistantMessages: true
+
+        models:
+          - id: deepseek-v4.1-flash
+            name: DeepSeek V4.1 Flash Summary (local)
+            contextWindow: 184320
+            maxTokens: 32768
+            input:
+              - text
+            reasoningEfforts:
+              off:
+              high: high
+              max: max
+
+# Host-plane compaction, used where no agent preset composes its own (ACP, headless): summaries go to the
+# summary twin of the conversation's route, so a local server never sees an unknown route.
+- id: compaction-basic
+  config:
+    auto: true
+    thresholdRatio: 0.80
+    headroomTokens: 0
+    retainRatio: 0.16
+    maxTokens: 32768
+    compactionRetries: 1
+    maxOverflowRetries: 1
+    # Other routes summarize through their own model.
+    modelPolicies:
+      - provider: qwen-flash
+        model: qwen3.8-next-flash
+        summarizationProvider: qwen-flash-summary
+        summarizationModel: qwen3.8-next-flash
+      - provider: qwen-27b
+        model: qwen3.8-27b
+        summarizationProvider: qwen-27b-summary
+        summarizationModel: qwen3.8-27b
+      - provider: ds4-v4-flash
+        model: deepseek-v4-flash
+        summarizationProvider: ds4-v4-flash-summary
+        summarizationModel: deepseek-v4-flash
+      - provider: ds4-v41-flash
+        model: deepseek-v4.1-flash
+        summarizationProvider: ds4-v41-flash-summary
+        summarizationModel: deepseek-v4.1-flash
+
+# Laya keeps or removes whole tool outputs verbatim; size-based trimming stays off, as in the local preset.
+- id: tool-result-pruner
+  disabled: true
+
+- insert:
+    # Prepared conversations: /prechat seeds a new chat with USER: / ASSISTANT: turns written for one model.
+    - id: prechat
+      name: '@deepseek-ai/dsh-prechat'
+      config:
+        routes:
+          - provider: ds4-v41-flash
+            model: deepseek-v4.1-flash
+
+    # Verbatim pruning decided by a decision service before summary compaction, at the same threshold. DSH_LAYA
+    # selects the pass: `resident` uses the service at LAYA_URL (default http://127.0.0.1:8766); `managed`
+    # additionally sends the local routes' passes to their model server, which lends the decision worker the memory
+    # of its own caches (`/v1/laya/compact`). Any service failure changes nothing, so summary compaction proceeds as
+    # before. Without DSH_LAYA the row stays mounted in `projection` mode, so stored sessions with pruning rewrites
+    # still resume.
+    - id: laya-pruner
+      name: '@deepseek-ai/dsh-compaction-laya-pruner'
+      config:
+        mode: !!js "['resident', 'managed'].includes(process.env.DSH_LAYA ?? '') ? 'pass' : 'projection'"
+        url: !!js process.env.LAYA_URL || 'http://127.0.0.1:8766'
+        modelEndpoints: !!js >-
+          process.env.DSH_LAYA === 'managed'
+            ? [['ds4-v41-flash', 'deepseek-v4.1-flash'], ['qwen-flash', 'qwen3.8-next-flash'], ['qwen-27b', 'qwen3.8-27b']].map(([provider, model]) =>
+                ({ provider, model, url: `${process.env.DSH_LOCAL_LLM_URL || 'http://127.0.0.1:8080/v1'}/laya/compact` }))
+            : []
+        thresholdRatio: 0.80
+        targetRatio: 0.25
+        minBudgetRatio: 0.25
+        timeoutMs: 120000
+
+    # Web search providers beside the DeepSeek ones; select one with `searchProvider` on the `web` row.
+    - id: web-search-exa
+      name: '@deepseek-ai/dsh-web-search-exa'
+    - id: web-search-tavily
+      name: '@deepseek-ai/dsh-web-search-tavily'

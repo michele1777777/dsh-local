@@ -1,0 +1,8 @@
+version: 1
+scenario: laya-managed-progress
+profile: sdk
+composition: laya-managed-progress
+recording: authored
+platform: posix
+header:
+  class: laya-managed-progress

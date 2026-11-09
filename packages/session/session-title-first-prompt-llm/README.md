@@ -31,6 +31,8 @@ Mount this plugin beside the title service when a session should be titled from 
 
 Automatic generation runs only for a fresh session with no parent and no prior title: after its first eligible human message, the fallback is created and one auxiliary request summarizes that message. Later prompts, explicit user renames, and inherited fork history do not trigger another automatic call. An automatic failure keeps the fallback; `ctx.sessionTitle.refresh()` is the explicit retry. Forks keep their inherited title and never run this provider automatically, even when their seeded first message came from the parent.
 
+A session started with `/goal <objective>` has no human message: its first round is attributed to the goal. When such a session's first turn is routed (or, for a resumed session, its next turn starts), the provider summarizes the goal objective with the same instruction and records the result through `ctx.sessionTitle.rename()`, because an automatic title must cite a human message; a failed call renames it to the objective's leading `targetWords` words. That call has no `session/title-llm-request` record, and the title behaves like a user rename: `refresh()` regenerates it.
+
 ### Configuration
 
 The plugin requires `targetWords` and `targetCjkCharacters` plus the shared [execution controls](../session-title-llm/README.md#configuration): `maxInputBytes`, `maxOutputTokens`, `timeoutMs`, and the optional paired `provider`/`model` route. Omit both to inherit the exact route from the current logged main request, or set both to route title generation independently. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-session-title-first-prompt-llm) is the exhaustive source for every accepted field.

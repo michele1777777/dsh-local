@@ -17,6 +17,10 @@ export const PROFILE_TEMPLATES: Record<string, ProfileTemplate> = {
   headless: {
     bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-headless'],
   },
+  // The terminal app composes the local-first layers: local model routes, Laya, and search providers.
+  tui: {
+    bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-local-base', '@deepseek-ai/dsh-tui-app', '@deepseek-ai/dsh-local-presets'],
+  },
   sdk: {
     bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-sdk-app'],
   },

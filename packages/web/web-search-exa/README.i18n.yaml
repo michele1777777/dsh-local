@@ -1,0 +1,64 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/web/web-search-exa/README.md
+/:
+  en: 3ff060c3430080eb
+  zh: b2ab7ec9a2dca60c
+/deepseek-ai-dsh-web-search-exa:
+  en: 1e59112a8781b6f5
+  zh: 858672d6f86534b5
+/deepseek-ai-dsh-web-search-exa/summary:
+  en: 6372bd171228de3c
+  zh: d6a52910c09a1bdf
+/deepseek-ai-dsh-web-search-exa/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-web-search-exa/use-this-package:
+  en: bbab8583205afc64
+  zh: 9fba5bd5eabf17d1
+/deepseek-ai-dsh-web-search-exa/use-this-package/when-to-choose-it:
+  en: 6d42f5c9cca897ca
+  zh: c42efc67fae49450
+/deepseek-ai-dsh-web-search-exa/use-this-package/minimal-configuration:
+  en: f815232b6bf77523
+  zh: 4842fd3a46a35d20
+/deepseek-ai-dsh-web-search-exa/use-this-package/authentication-and-readiness:
+  en: c76323c37da1e6b7
+  zh: e009c5e586342bfc
+/deepseek-ai-dsh-web-search-exa/use-this-package/what-a-search-returns:
+  en: a2c5a8519952154d
+  zh: f34d92dec1570818
+/deepseek-ai-dsh-web-search-exa/use-this-package/failures-and-recovery:
+  en: 9629061f453c92e2
+  zh: bc9a0440bc1fe7ba
+/deepseek-ai-dsh-web-search-exa/understand-the-implementation:
+  en: 9842c69ad3636bb3
+  zh: 596638b911659636
+/deepseek-ai-dsh-web-search-exa/understand-the-implementation/design-philosophy:
+  en: 86aca421e6365541
+  zh: dfd5d6fcb1215b41
+/deepseek-ai-dsh-web-search-exa/understand-the-implementation/source-map:
+  en: 0168e88d2c39a373
+  zh: 83e32fc8dd04f240
+/deepseek-ai-dsh-web-search-exa/understand-the-implementation/request-and-mapping-flow:
+  en: 0699f0007fb91420
+  zh: ee6bda7d0226dbf7
+/deepseek-ai-dsh-web-search-exa/further-exploration:
+  en: 02b492e2a6d83161
+  zh: 111884ce4e75cfbf
+/deepseek-ai-dsh-web-search-exa/model-experience:
+  en: 5ef7fd52e3d5e18d
+  zh: e0e8ba4ce157df8a
+/deepseek-ai-dsh-web-search-exa/model-experience/kv-cache-effect:
+  en: 40294c1c31b74824
+  zh: 5180853e10e8f8fa
+/deepseek-ai-dsh-web-search-exa/known-limitations-and-deferred-work:
+  en: e9c76729b9cf6074
+  zh: 8e810b1fe980e717
+/deepseek-ai-dsh-web-search-exa/known-limitations-and-deferred-work/dev-note:
+  en: 7f775cc79dbce94b
+  zh: 2b1e8527f557e34c
+/deepseek-ai-dsh-web-search-exa/known-limitations-and-deferred-work/dev-note/future-wider-exa-control-surface:
+  en: 7a6c72d34be40225
+  zh: ee440dd6e64d31c4

@@ -52,6 +52,16 @@ function body(text = 'x'.repeat(300)) {
 }
 
 describe('incremental DeepSeek session-log upload', () => {
+  it('keeps Auto review isolated from the main session upload', async () => {
+    const { ctx, session } = await harness('review-isolated')
+    session.append('user/message', createUserMessage({ content: [{ type: 'text', text: 'main history' }], source: { kind: 'user' } }), { surfaceOp: 'append' })
+    const review = await ctx.deepseekLlmApiExtensions.prepare({ body: body(), signal: SIGNAL, sessionId: session.id, purpose: 'auto-review' })
+    expect(review.fields.dsh_session_log).toBeUndefined()
+    await review.accept()
+    const main = await ctx.deepseekLlmApiExtensions.prepare({ body: body(), signal: SIGNAL, sessionId: session.id })
+    expect(main.fields.dsh_session_log?.events).toEqual(session.snapshotEvents())
+  })
+
   it('publishes raw numeric sequence fields on its external wire DTO', () => {
     expectTypeOf<DeepSeekSessionLogExtension['sessionFormatVersion']>().toEqualTypeOf<number>()
     expectTypeOf<DeepSeekSessionLogExtension['afterSeq']>().toEqualTypeOf<number>()
@@ -404,7 +414,7 @@ describe('incremental DeepSeek session-log upload', () => {
     })
   })
 
-  it.each([undefined, 'compaction', 'session-title', 'auto-review'])(
+  it.each([undefined, 'compaction', 'session-title'])(
     'uploads and acknowledges eligible requests with purpose %s by default', async (purpose) => {
       const { ctx, session } = await harness('default-upload')
       session.append('turn/start', { turn: 1 })

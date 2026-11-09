@@ -233,3 +233,5 @@ selector 必须是 owner currency 的纯函数。非 null 返回值作为 `match
 无。
 
 </details>
+
+运行期间，Enter 和发送按钮默认使用 Steer，让用户消息解除前台任务等待。Ctrl/Cmd+Enter 显式排队。会话设置可反转这两种操作，已保存的偏好仍然优先。

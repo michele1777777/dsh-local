@@ -103,3 +103,5 @@ These limits define the current command surface. They are current package constr
 None.
 
 </details>
+
+Model-selection projection updates discard the affected session's cached command directory before the next slash-command classification.

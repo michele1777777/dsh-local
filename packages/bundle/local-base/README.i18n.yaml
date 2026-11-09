@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/bundle/local-base/README.md
+/:
+  en: c62f92c65e75ab10
+  zh: 29bf9abe38af5ee9
+/deepseek-ai-dsh-local-base:
+  en: 73ecb28f8f2c0046
+  zh: 3236d851c0d59d29
+/deepseek-ai-dsh-local-base/summary:
+  en: 46546dfd457907c4
+  zh: bd3c6e9a76584b3b
+/deepseek-ai-dsh-local-base/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-local-base/use-this-package:
+  en: 944ab969ba8e997d
+  zh: 1e67115eb27eacb7
+/deepseek-ai-dsh-local-base/use-this-package/environment-variables:
+  en: d9ba84bb5cdac252
+  zh: 4226770e9c62839d
+/deepseek-ai-dsh-local-base/use-this-package/local-model-routes:
+  en: d7289d274ec0a18f
+  zh: 48de0fe6422652bf
+/deepseek-ai-dsh-local-base/use-this-package/summary-routes:
+  en: ebe36aee8ba0ab16
+  zh: d6dd614dcc368ce1
+/deepseek-ai-dsh-local-base/use-this-package/laya-pruning:
+  en: 697d3b6cb988b31a
+  zh: 101715235366f4ae
+/deepseek-ai-dsh-local-base/use-this-package/prepared-conversations-search-and-auto-review:
+  en: 6c7d3d8031154573
+  zh: 839141c697c73f7a
+/deepseek-ai-dsh-local-base/understand-the-implementation:
+  en: 1e9264a1aeba8d2a
+  zh: b1dce8d7414833df
+/deepseek-ai-dsh-local-base/further-exploration:
+  en: 80943b8b7315f371
+  zh: 479478e81df246e0
+/deepseek-ai-dsh-local-base/model-experience:
+  en: 1e2c082ba33e37e0
+  zh: 40fe37cb2356ddc7
+/deepseek-ai-dsh-local-base/model-experience/kv-cache-effect:
+  en: 5106eb427646b597
+  zh: 9936ccd26db37b22
+/deepseek-ai-dsh-local-base/known-limitations-and-deferred-work:
+  en: d1059a27c77d9a0b
+  zh: 8f4ace94c13a5c07
+/deepseek-ai-dsh-local-base/known-limitations-and-deferred-work/dev-note:
+  en: 68eed23dc22dee02
+  zh: 59c10b052729bfda

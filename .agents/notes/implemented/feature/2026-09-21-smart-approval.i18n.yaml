@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-21-smart-approval.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-21-smart-approval.md
+/agent-note-smart-approval-owns-review-not-agent-context-or-sandbox-execution:
+  en: ced24bad8720d890
+  zh: 17c6c9ebe28bc88c
+/agent-note-smart-approval-owns-review-not-agent-context-or-sandbox-execution/problem:
+  en: af55fcf44980b429
+  zh: 82ac12e96c44a613
+/agent-note-smart-approval-owns-review-not-agent-context-or-sandbox-execution/decision:
+  en: c11ecce05d35fe54
+  zh: 7a23a284c9eef788
+/agent-note-smart-approval-owns-review-not-agent-context-or-sandbox-execution/alternatives-considered:
+  en: e6adddb4bebe209d
+  zh: b92cc03fff2be5d9
+/agent-note-smart-approval-owns-review-not-agent-context-or-sandbox-execution/consequences:
+  en: 5654c1815ec76061
+  zh: ffeef05e8d32842e

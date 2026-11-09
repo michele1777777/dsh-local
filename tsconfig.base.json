@@ -28,6 +28,10 @@
     // not declaration path aliases, keep each package/vendor source compiled
     // under its own tsconfig boundary.
     "paths": {
+      "@deepseek-ai/dsh-client-ui-prechat": ["./packages/client/ui-prechat/src"],
+      "@deepseek-ai/dsh-client-ui-prechat/*": ["./packages/client/ui-prechat/src/*"],
+      "@deepseek-ai/dsh-prechat": ["./packages/context/prechat/src"],
+      "@deepseek-ai/dsh-prechat/*": ["./packages/context/prechat/src/*"],
       "@deepseek-ai/dsh-client-ui-file-actions": ["./packages/client/ui-file-actions/src/index.ts"],
       "@deepseek-ai/dsh-client-ui-file-actions/client": ["./packages/client/ui-file-actions/src/client/index.ts"],
       "@deepseek-ai/dsh-client-ui-file-actions/types": ["./packages/client/ui-file-actions/src/types.ts"],
@@ -409,6 +413,12 @@
       // session-log-export lives under session-query/, so the generated aliases map only its
       // bare name; the browser half needs this explicit subpath for source-mode dynamic imports.
       "@deepseek-ai/dsh-session-log-export/client": ["./packages/session-query/session-log-export/src/client"],
+      "@deepseek-ai/dsh-smart-approval": ["./packages/interaction/smart-approval/src/index.ts"],
+      "@deepseek-ai/dsh-tui-app/startup": ["./packages/bundle/tui-app/src/startup.ts"],
+      "@deepseek-ai/dsh-client-ui-laya-pruner": ["./packages/client/ui-laya-pruner/src"],
+      "@deepseek-ai/dsh-compaction-laya-pruner/projection": ["./packages/compaction/compaction-laya-pruner/src/projection.ts"],
+      "@deepseek-ai/dsh-compaction-laya-pruner": ["./packages/compaction/compaction-laya-pruner/src"],
+      "@deepseek-ai/dsh-tui-app": ["./packages/bundle/tui-app/src"],
       "@deepseek-ai/dsh-compaction-image-offload/projection": ["./packages/compaction/compaction-image-offload/src/projection.ts"],
       "@deepseek-ai/dsh-session-format-catalog/message-projections": ["./packages/session/session-format-catalog/src/message-projections.ts"],
       "@deepseek-ai/dsh-native-command/types": ["./packages/util/native-command/src/types.ts"],
@@ -440,6 +450,7 @@
       "@deepseek-ai/dsh-command-compact": ["./packages/compaction/command-compact/src"],
       "@deepseek-ai/dsh-command-feedback": ["./packages/feedback/command-feedback/src"],
       "@deepseek-ai/dsh-command-goal": ["./packages/goal/command-goal/src"],
+      "@deepseek-ai/dsh-command-skills": ["./packages/skill/command-skills/src"],
       "@deepseek-ai/dsh-commands": ["./packages/interaction/commands/src"],
       "@deepseek-ai/dsh-compaction": ["./packages/compaction/compaction/src"],
       "@deepseek-ai/dsh-compaction-basic": ["./packages/compaction/compaction-basic/src"],
@@ -482,6 +493,9 @@
       "@deepseek-ai/dsh-llm-replay": ["./packages/test-support/llm-replay/src"],
       "@deepseek-ai/dsh-llm-retry": ["./packages/llm/llm-retry/src"],
       "@deepseek-ai/dsh-loader-smoke": ["./packages/test-support/loader-smoke/src"],
+      "@deepseek-ai/dsh-local-base": ["./packages/bundle/local-base/src"],
+      "@deepseek-ai/dsh-local-presets": ["./packages/bundle/local-presets/src"],
+      "@deepseek-ai/dsh-local-web": ["./packages/bundle/local-web/src"],
       "@deepseek-ai/dsh-lsp": ["./packages/lsp/lsp/src"],
       "@deepseek-ai/dsh-lsp-stdio": ["./packages/lsp/lsp-stdio/src"],
       "@deepseek-ai/dsh-mcp-client": ["./packages/mcp/mcp-client/src"],
@@ -608,6 +622,8 @@
       "@deepseek-ai/dsh-web-deepseek-api": ["./packages/web/web-deepseek-api/src"],
       "@deepseek-ai/dsh-web-fetch-http": ["./packages/web/web-fetch-http/src"],
       "@deepseek-ai/dsh-web-search-deepseek": ["./packages/web/web-search-deepseek/src"],
+      "@deepseek-ai/dsh-web-search-exa": ["./packages/web/web-search-exa/src"],
+      "@deepseek-ai/dsh-web-search-tavily": ["./packages/web/web-search-tavily/src"],
       "@deepseek-ai/dsh-webhook": ["./packages/experimental/webhook/src"],
       "@deepseek-ai/dsh-webhook-github": ["./packages/experimental/webhook-github/src"],
       "@deepseek-ai/dsh-win32-process": ["./packages/subprocess/win32-process/src"],

@@ -414,15 +414,21 @@ describe('executeSessionTitleLlm', () => {
     expect(() => resolveSessionTitleLlmConfig(CONFIG)).not.toThrow()
   })
 
-  it('rejects an absent route, empty attribution, and pre-aborted caller before model dispatch', async () => {
+  it('runs an input that cites no human message without logging a title request', async () => {
+    const { ctx, adapter } = await withScript(SCRIPT)
+    const config = resolveSessionTitleLlmConfig(CONFIG)
+    const empty = request(ctx)
+    await executeSessionTitleLlm(ctx, config, empty, TITLE_PROVIDER, prepared(empty, { messageSeqs: [] }))
+    expect(adapter.requests).toHaveLength(1)
+    expect(empty.session.snapshotEvents().some(event => event.type === 'session/title-llm-request')).toBe(false)
+  })
+
+  it('rejects an absent route and pre-aborted caller before model dispatch', async () => {
     const { ctx, adapter } = await withScript(SCRIPT)
     const config = resolveSessionTitleLlmConfig(CONFIG)
     const unrouted = requestWithoutRoute(ctx)
     await expect(executeSessionTitleLlm(ctx, config, unrouted, TITLE_PROVIDER, prepared(unrouted)))
       .rejects.toThrow(/no logged request route/)
-    const empty = request(ctx)
-    await expect(executeSessionTitleLlm(ctx, config, empty, TITLE_PROVIDER, prepared(empty, { messageSeqs: [] })))
-      .rejects.toThrow(/at least one source message/)
     const controller = new AbortController()
     controller.abort(new Error('caller stopped'))
     const aborted = request(ctx, controller.signal)

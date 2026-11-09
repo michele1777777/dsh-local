@@ -115,6 +115,10 @@ Blockquotes travel as ordinary prompt text without quote metadata. Local submiss
 An empty `prompt.content` array requests a new turn only for an eligible failed, idle ordinary Session in queue mode. Pending human input prevents admission; non-waking injected context is retained. `conversationContinuation` supplies the shared six-code manual policy, independently of provider retry configuration. The input follows ordinary inbox and Loop admission and records an empty `user/message` with `source.kind: 'retry'`; its input identity and caller metadata support deduplication and recovery. Whitespace-only text parts remain invalid.
 
 <a id="model-experience"></a>
+## Model selection target
+
+The `session/model-target` waterfall runs after model validation and before installing the selection. A plugin may delegate, then return a fresh Agent when its current history is restricted to a model. `selectModel` returns `sessionId` when the target differs, so interactive clients navigate to that session. The original session remains unchanged; pending model selection and default saving apply to the returned target.
+
 ## Model Experience
 
 None, as invoked Agent commands own any model-visible effect.

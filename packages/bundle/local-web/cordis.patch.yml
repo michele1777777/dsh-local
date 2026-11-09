@@ -1,0 +1,23 @@
+# Web additions of this distribution, layered after @deepseek-ai/dsh-web-app.
+
+- insert:
+    # Laya pruning passes in the conversation: running indicator, totals, and the kept and pruned outputs.
+    - id: ui-laya-pruner
+      name: '@deepseek-ai/dsh-client-ui-laya-pruner'
+    # The /prechat editor and the imported-message rows.
+    - id: ui-prechat
+      name: '@deepseek-ai/dsh-client-ui-prechat'
+
+    # The Smart permission preset: sessions stay manual until explicitly switched.
+    - id: smart-approval
+      name: '@deepseek-ai/dsh-smart-approval'
+      config:
+        timeoutMs: 20000
+        maxInputChars: 48000
+        maxOutputChars: 48000
+        maxOutputTokens: 4096
+        maxConcurrentReviews: 2
+        deniedTools: []
+        humanOnlyTools: [run_code]
+        # plugin_manager asks for danger-full-access inside every call; Smart reviews that request.
+        escalatingTools: [plugin_manager]

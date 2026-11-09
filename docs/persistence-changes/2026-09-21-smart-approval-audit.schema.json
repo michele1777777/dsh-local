@@ -1,0 +1,29 @@
+{
+  "formatVersion": 1,
+  "roots": [
+    {"key":"event:approval/decided","kind":"event","event":"approval/decided","surface":false,"digest":"721604861a7232e6f145a892def95c4d4f4d2b7aa270a43d6fd585fd80deedd6"}
+  ],
+  "types": [],
+  "nodes": {
+    "0657d3ca5ac4e7bf": {"kind":"primitive","type":"number"},
+    "2142e391b9ccb60d": {"kind":"literal","value":"cancelled"},
+    "2c4c21f19f426a58": {"kind":"literal","value":"unavailable"},
+    "378f90f9f6022a09": {"kind":"literal","value":"approval/decided"},
+    "389ae5e23e443957": {"kind":"union","types":["74cccf61c33e3e6d","98889a31bae45e48","9e07693fd7cd9bab"]},
+    "4cd48f3e5108bd6e": {"kind":"primitive","type":"string"},
+    "60d01fd6a4e2773c": {"kind":"object","properties":[{"name":"id","type":"4cd48f3e5108bd6e","optional":false},{"name":"outcome","type":"930c1cd289def119","optional":false},{"name":"review","type":"849079d8981458d1","optional":true}],"indices":[]},
+    "721604861a7232e6": {"kind":"object","properties":[{"name":"data","type":"60d01fd6a4e2773c","optional":false},{"name":"ignorable","type":"dacf3d5f3e4ff619","optional":true},{"name":"seq","type":"0657d3ca5ac4e7bf","optional":false},{"name":"time","type":"0657d3ca5ac4e7bf","optional":false},{"name":"type","type":"378f90f9f6022a09","optional":false}],"indices":[]},
+    "74cccf61c33e3e6d": {"kind":"literal","value":"allow"},
+    "79bce65bac21d705": {"kind":"literal","value":"policy"},
+    "811229eedcec5797": {"kind":"literal","value":"allowed-once"},
+    "849079d8981458d1": {"kind":"object","properties":[{"name":"decision","type":"389ae5e23e443957","optional":false},{"name":"durationMs","type":"0657d3ca5ac4e7bf","optional":false},{"name":"model","type":"4cd48f3e5108bd6e","optional":true},{"name":"provider","type":"4cd48f3e5108bd6e","optional":true},{"name":"reason","type":"4cd48f3e5108bd6e","optional":false},{"name":"source","type":"849bc9b0340a7a14","optional":false}],"indices":[]},
+    "849bc9b0340a7a14": {"kind":"union","types":["79bce65bac21d705","8d0cc4a8fd38b61c","d6e654b88b584fcd"]},
+    "8d0cc4a8fd38b61c": {"kind":"literal","value":"reviewer"},
+    "930c1cd289def119": {"kind":"union","types":["2142e391b9ccb60d","2c4c21f19f426a58","811229eedcec5797","fab35c4520883c0d"]},
+    "98889a31bae45e48": {"kind":"literal","value":"deny"},
+    "9e07693fd7cd9bab": {"kind":"literal","value":"ask"},
+    "d6e654b88b584fcd": {"kind":"literal","value":"fallback"},
+    "dacf3d5f3e4ff619": {"kind":"literal","value":true},
+    "fab35c4520883c0d": {"kind":"literal","value":"rejected"}
+  }
+}

@@ -29,7 +29,7 @@ As a deployment, configure this policy through the [first-prompt](../session-tit
 
 ### Executing a provider request
 
-A provider plugin registers directly on `ctx.sessionTitle` and, inside its `generate(request)`, passes `{ system, input, messageSeqs, selectReasoningEffort }` to `executeSessionTitleLlm`. The provider owns the system instruction, input framing, its reasoning selection, and output interpretation; the function owns route preparation, bounds, cancellation, request logging, and stream assembly. A second registration on the service throws.
+A provider plugin registers directly on `ctx.sessionTitle` and, inside its `generate(request)`, passes `{ system, input, messageSeqs, selectReasoningEffort }` to `executeSessionTitleLlm`. The provider owns the system instruction, input framing, its reasoning selection, and output interpretation; the function owns route preparation, bounds, cancellation, request logging, and stream assembly. An empty `messageSeqs` marks input that cites no human message, such as a `/goal` objective; the call then runs without a `session/title-llm-request` record, which may cite only human messages. A second registration on the service throws.
 
 Every request carries `currentTitle`, the latest accepted title snapshot the service captured for the call, including an accepted fallback. A provider decides whether to use it: the all-prompts provider anchors only a provider-sourced title, including one inherited from a different provider, and treats fallback, user, and absent titles as initial generation. The first-prompt provider ignores `currentTitle`.
 

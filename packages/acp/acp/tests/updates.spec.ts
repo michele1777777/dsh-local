@@ -91,3 +91,42 @@ describe('standard ACP update projection', () => {
     })
   })
 })
+
+function resultEvent(isError: boolean, error?: { name: string; code: string; reason?: string }) {
+  return {
+    type: 'tool/result',
+    data: {
+      turn: 1,
+      step: 1,
+      message: {
+        role: 'tool',
+        source: { kind: 'tool', callId: 'call-1' },
+        toolCallId: 'call-1',
+        isError,
+        content: [{ type: 'text', text: 'out' }],
+      },
+      ...error === undefined ? {} : { error },
+    },
+  } as never
+}
+
+describe('tool result raw output', () => {
+  const ctx = { get: () => undefined } as Pick<Context, 'get'> as Context
+
+  it('exposes a failure identity and reason as raw output, outside the model content', async () => {
+    const error = { name: 'AutoReviewDeniedError', code: 'AUTO_REVIEW_DENIED', reason: 'deletes pre-existing files' }
+    const update = await toolResultUpdate(ctx, resultEvent(true, error))
+    expect(update).toMatchObject({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'call-1',
+      status: 'failed',
+      content: [{ type: 'content', content: { type: 'text', text: 'out' } }],
+      rawOutput: { error },
+    })
+  })
+
+  it('adds no raw output to successful or reason-less results', async () => {
+    expect(await toolResultUpdate(ctx, resultEvent(false))).not.toHaveProperty('rawOutput')
+    expect(await toolResultUpdate(ctx, resultEvent(true))).not.toHaveProperty('rawOutput')
+  })
+})
