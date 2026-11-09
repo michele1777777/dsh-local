@@ -420,14 +420,15 @@ describe('JobListAction hover', () => {
 })
 
 describe('JobListAction rows', () => {
-  it('renders a settled job without retained output as a static row', () => {
+  it('opens a settled job even without retained output', () => {
     render(<JobListAction {...props([
       job({ id: 'subagent-1' as JobView['id'], kind: 'subagent', label: 'explore the repo', status: 'completed', finishedAt: 1_700_000_003_000 }),
     ])} />)
     expect(screen.getByRole('button', { name: '1 个后台任务' })).toBeDefined()
     openList()
     expect(screen.getByText('explore the repo')).toBeDefined()
-    expect(screen.queryByRole('button', { name: zh['row.expandAria'].replace('{label}', 'explore the repo') })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: zh['row.expandAria'].replace('{label}', 'explore the repo') }))
+    expect(screen.getByRole('button', { name: zh['row.collapseAria'].replace('{label}', 'explore the repo') }).getAttribute('aria-expanded')).toBe('true')
   })
 
   it('offers a panel on a live row before any output arrived', () => {

@@ -63,6 +63,8 @@ export function apply(ctx: Context): void {
 <a id="acceptance-and-retry"></a>
 ## 接受与重试
 
+标记为 `auto-review` 的请求不附带会话日志扩展：会话标识仅用于缓存路由，审查请求被接受时不会推进主会话上传水位。
+
 DeepSeek 适配器会在 HTTP 2xx 后、消费 SSE（Server-Sent Events）正文前调用已准备贡献的 `accept()`。接受操作会追加 `session-log-deepseek/delivery-accepted`，其中包含已上传的 `throughSeq` 与 `sessionFormatVersion`；省略格式字段的记录表示 v0。下一次请求再把该事件作为新后缀的一部分上传。传输失败、非 2xx 失败，以及 DeepSeek 适配器在扩展字段序列化失败后不带扩展字段发出的请求，都不会追加接受记录，因此后续请求会重发不确定范围。并发交付可能乱序得到接受；折叠匹配记录中最大的 `throughSeq` 可以防止游标回退。
 
 服务端接受后、持久化水位前发生崩溃，可能让恢复后的进程重放已经接受的范围。这是至少一次交付的失败方向：不确定性会制造重复，绝不会跳过序列。普通会话检查点策略会在下一个语义检查点持久化水位；本插件不执行独立 I/O。

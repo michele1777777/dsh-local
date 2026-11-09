@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Prepared conversations",
+    "description": "Import a prepared conversation as the start of a new chat with /prechat."
+  }
+}

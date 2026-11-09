@@ -1,3 +1,6 @@
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { executeToolFixture, executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { externalTestParent } from '../../../subagent/subagent/tests/external-activation-helpers.ts'
@@ -13,6 +16,7 @@ import LlmRuntime, {
   createToolResultMessage,
   createUserMessage,
   LlmAdapter,
+  ReasoningEffortId,
   ToolCallId,
   type ContentBlock,
   type GenerateOptions,
@@ -131,6 +135,7 @@ function reasoningDecisionChunks(text: string): StreamChunk[] {
 async function harness(
   script: ReviewScript[],
   permissionConfig: NonNullable<Parameters<typeof PermissionPresetService.Config>[0]> = { presets: PRESETS, defaultPreset: 'workspace-write' },
+  autoConfig: AutoReview.Config = { trustedTools: [] },
 ): Promise<{ ctx: Context; adapter: RecordingAdapter; auto: PluginFiber }> {
   const ctx = new Context()
   provideWorkingDirectoryFixture(ctx)
@@ -155,7 +160,7 @@ async function harness(
     yield (await ctx.plugin(ApprovalService, { policy: 'ask' })).dispose
     yield (await ctx.plugin(PermissionPresetService, permissionConfig)).dispose
     yield ctx.llm.registerAdapter(['review'], adapter)
-    auto = await ctx.plugin(AutoReview)
+    auto = await ctx.plugin(AutoReview, autoConfig)
     yield auto.dispose
   })
   if (auto === undefined) throw new Error('Auto fixture did not activate')
@@ -285,6 +290,56 @@ async function until(predicate: () => boolean): Promise<void> {
   }
   if (!predicate()) throw new Error('condition did not become true')
 }
+
+describe('Auto runtime context', () => {
+  it('retains contexts only for the live Auto session and disposes the policy', async () => {
+    const { ctx, auto } = await harness([])
+    const { session } = autoSession(ctx, 'cache-policy')
+    const options: GenerateOptions = Object.freeze({ provider: 'review', model: 'same-model', messages: [], sessionId: session.id })
+    const policy = (request = options) => ctx.bail('llm/preserve-context', request)
+    expect(policy()).toBe(true)
+    expect(policy({ ...options, purpose: 'auto-review' })).toBe(true)
+    expect(policy({ ...options, purpose: 'compaction' })).toBeUndefined()
+    expect(policy({ provider: 'review', model: 'same-model', messages: [] })).toBeUndefined()
+    expect(policy({ ...options, sessionId: SessionId('unknown') })).toBeUndefined()
+    for (const preset of ['workspace-write', 'read-only', 'danger-full-access']) {
+      ctx.permissionPresets.set(session, preset)
+      expect(policy()).toBeUndefined()
+      expect(policy({ ...options, purpose: 'auto-review' })).toBeUndefined()
+    }
+    ctx.permissionPresets.set(session, AUTO_PRESET)
+    expect(policy()).toBe(true)
+    await auto.dispose()
+    expect(policy()).toBeUndefined()
+  })
+
+  it('distinguishes Auto from full access, reflects switches, and preserves the system prefix', async () => {
+    const { ctx, auto } = await harness([], undefined, { trustedTools: ['read', 'read_image', 'glob', 'grep'] })
+    const { session, agent } = autoSession(ctx, 'auto-context')
+    const context = async (input: object = { agent }) =>
+      (await ctx.systemPrompt.assemble(input)).contexts.find(entry => entry.name === 'approval:auto-review')?.text
+    const initial = await ctx.systemPrompt.assemble({ agent })
+    const active = await context()
+    expect(active).toMatchInlineSnapshot('"Current DSH permission preset: auto. The danger-full-access file policy describes filesystem access; automatic authorization review is active. Tool calls are reviewed before execution unless explicitly trusted; for run_code, review applies to its inner tool calls. Tools exempt from Auto review (exact names or prefix* patterns): [\"read\",\"read_image\",\"glob\",\"grep\"]. Use tools normally within the user\'s instructions; full filesystem access does not grant permission for arbitrary actions. A review denial asks the user for approval before the tool can execute."')
+    expect(await context()).toBe(active)
+    expect(await context({})).toBe('')
+    const other = ctx.sessions.create(SessionId('other-context'))
+    expect(await context({ agent: agentFor(other) })).toBe('Current DSH permission preset: workspace-write. Auto review is inactive.')
+    ctx.permissionPresets.set(session, 'danger-full-access')
+    expect(await context()).toBe('Current DSH permission preset: danger-full-access. Auto review is inactive.')
+    ctx.permissionPresets.set(session, AUTO_PRESET)
+    expect(await context()).toBe(active)
+    setApprovalPolicy(session, 'never')
+    expect(await context()).toContain('Review denials are final; the tool does not execute.')
+    expect(await context()).not.toContain('asks the user')
+    ctx.permissionPresets.set(session, 'workspace-write')
+    expect(await context()).toBe('Current DSH permission preset: workspace-write. Auto review is inactive.')
+    const changed = await ctx.systemPrompt.assemble({ agent })
+    expect(changed.sections).toEqual(initial.sections)
+    await auto.dispose()
+    expect(await context()).toBeUndefined()
+  })
+})
 
 describe('native review request', () => {
   it('uses the latest route and exactly the filtered logged input', async () => {
@@ -417,6 +472,8 @@ describe('native review request', () => {
       sessionId: session.id,
       purpose: 'auto-review',
     })
+    expect(request.sessionId).toBe(session.id)
+    expect(request.purpose).toBe('auto-review')
     expect(request.maxTokens).toBeUndefined()
     expect(request.tools).toBeUndefined()
     for (const message of request.messages) {
@@ -1108,7 +1165,8 @@ describe('native review request', () => {
         { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } },
       ],
     ]
-    const { ctx, adapter } = await harness(invalidResponses)
+    // Every technical failure is retried once; the retry's failure fails the call.
+    const { ctx, adapter } = await harness(invalidResponses.flatMap(response => [response, response]))
     const probe = registerProbe(ctx)
     const cases = invalidResponses.map((_, index) => `invalid-${String(index)}`)
     const messages: string[] = []
@@ -1141,7 +1199,172 @@ describe('native review request', () => {
     expect(messages[19]).toBe(`${prefix}auto-review: reviewer ended with max-tokens`)
     for (const message of messages) expect(message.startsWith(prefix)).toBe(true)
     expect(probe.runs()).toBe(0)
-    expect(adapter.requests).toHaveLength(cases.length)
+    expect(adapter.requests).toHaveLength(2 * invalidResponses.length)
+  })
+
+  it('accepts a fenced JSON decision and retries one technical failure', async () => {
+    const { ctx, adapter } = await harness([
+      decisionChunks('```json\n{"risk":"low","decision":"allow"}\n```'),
+      decisionChunks('not json'),
+      decisionChunks('{"risk":"low","decision":"allow"}'),
+    ])
+    const probe = registerProbe(ctx)
+    for (const id of ['fenced', 'retried']) {
+      const { session, agent } = autoSession(ctx, id)
+      appendHeader(session, [{ name: 'probe', description: 'probe', parameters: { type: 'object' } }])
+      const callId = ToolCallId(`${id}-call`)
+      appendAssistant(session, [{ type: 'tool-call', id: callId, name: 'probe', arguments: '{}' }])
+      appendNativeCall(session, callId, 'probe', '{}')
+      const result = await executeToolFixture(ctx, {
+        signal: new AbortController().signal, callId, name: 'probe', arguments: {}, agent,
+      })
+      expect(result.isError).toBe(false)
+    }
+    expect(probe.runs()).toBe(2)
+    expect(adapter.requests).toHaveLength(3)
+  })
+
+  it.each([
+    ['Qwen', ['off', 'low', 'medium', 'xhigh']],
+    ['DeepSeek', ['off', 'high', 'max']],
+  ] as const)('uses the declared off effort for %s instead of its thinking default', async (_name, levels) => {
+    const { ctx, adapter } = await harness([decisionChunks('{"risk":"low","decision":"allow"}')])
+    const resolve = vi.spyOn(adapter, 'resolveModel').mockResolvedValue({
+      provider: 'review', id: 'same-model', name: 'Local model',
+      reasoning: {
+        efforts: levels.map(id => ({ id: ReasoningEffortId(id), name: id })),
+        defaultEffort: ReasoningEffortId(levels[levels.length - 1]!),
+      },
+    })
+    const probe = registerProbe(ctx)
+    const { session, agent } = autoSession(ctx, `review-off-${_name}`)
+    appendHeader(session, [{ name: 'probe', description: 'probe', parameters: { type: 'object' } }])
+    const callId = ToolCallId('review-off-call')
+    appendAssistant(session, [{ type: 'tool-call', id: callId, name: 'probe', arguments: '{}' }])
+    appendNativeCall(session, callId, 'probe', '{}')
+    const result = await executeToolFixture(ctx, {
+      signal: new AbortController().signal, callId, name: 'probe', arguments: {}, agent,
+    })
+    expect(result.error).toBeUndefined()
+    expect(probe.runs()).toBe(1)
+    expect(resolve).toHaveBeenCalledWith('review', 'same-model', expect.any(AbortSignal))
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests[0]?.reasoningEffort).toBe('off')
+  })
+
+  it('reads a decision after prose and repairs an unreadable reply with the reviewer config', async () => {
+    const { ctx, adapter } = await harness(
+      [
+        decisionChunks('The command only reads files. {"risk":"low","decision":"allow"}'),
+        decisionChunks('I think this is fine, it is low risk.'),
+        decisionChunks('{"risk":"low","decision":"allow"}'),
+      ],
+      undefined,
+      { trustedTools: [], reasoningEffort: 'low', maxTokens: 4096 },
+    )
+    const probe = registerProbe(ctx)
+    for (const id of ['prose', 'repair']) {
+      const { session, agent } = autoSession(ctx, id)
+      appendHeader(session, [{ name: 'probe', description: 'probe', parameters: { type: 'object' } }])
+      const callId = ToolCallId(`${id}-call`)
+      appendAssistant(session, [{ type: 'tool-call', id: callId, name: 'probe', arguments: '{}' }])
+      appendNativeCall(session, callId, 'probe', '{}')
+      const result = await executeToolFixture(ctx, {
+        signal: new AbortController().signal, callId, name: 'probe', arguments: {}, agent,
+      })
+      expect(result.isError).toBe(false)
+    }
+    expect(probe.runs()).toBe(2)
+    expect(adapter.requests).toHaveLength(3)
+    for (const request of adapter.requests) {
+      expect(request).toMatchObject({ maxTokens: 4096, temperature: 0 })
+      // the review route declares no reasoning levels: the configured effort is not forced on it
+      expect(request).not.toHaveProperty('reasoningEffort')
+    }
+    const repairText = JSON.stringify(adapter.requests[2]!.messages)
+    expect(repairText).toContain('REJECTED_PREVIOUS_REPLY')
+    expect(repairText).toContain('I think this is fine, it is low risk.')
+    expect(JSON.stringify(adapter.requests[1]!.messages)).not.toContain('REJECTED_PREVIOUS_REPLY')
+  })
+
+  it('runs trusted tools without a review and reviews every other tool', async () => {
+    const { ctx, adapter } = await harness(
+      [decisionChunks('{"risk":"medium","decision":"deny"}')],
+      undefined,
+      { trustedTools: ['mcp__team__*', 'exact_tool', 'read', 'read_image', 'glob', 'grep'] },
+    )
+    const trusted = registerProbe(ctx, 'mcp__team__read')
+    const exact = registerProbe(ctx, 'exact_tool')
+    const other = registerProbe(ctx, 'mcp__other__write')
+    const reads = ['read', 'read_image', 'glob', 'grep'].map(name => registerProbe(ctx, name))
+    const asked: string[] = []
+    ctx.on('approval/request', (request) => {
+      asked.push(request.toolName)
+      return Promise.resolve<ApprovalOutcome>('rejected')
+    })
+    for (const name of ['mcp__team__read', 'exact_tool', 'read', 'read_image', 'glob', 'grep', 'mcp__other__write']) {
+      const { session, agent } = autoSession(ctx, `trusted-${name}`)
+      appendHeader(session, [{ name, description: name, parameters: { type: 'object' } }])
+      session.append('turn/start', { turn: 1 })
+      const callId = ToolCallId(`${name}-call`)
+      appendAssistant(session, [{ type: 'tool-call', id: callId, name, arguments: '{}' }])
+      appendNativeCall(session, callId, name, '{}')
+      const result = await executeToolFixture(ctx, {
+        signal: new AbortController().signal, callId, name, arguments: {}, agent,
+      })
+      expect(result.isError).toBe(name === 'mcp__other__write')
+    }
+    expect([trusted.runs(), exact.runs(), other.runs()]).toEqual([1, 1, 0])
+    expect(reads.map(probe => probe.runs())).toEqual([1, 1, 1, 1])
+    // only the reviewed tool's denial reaches the user
+    expect(asked).toEqual(['mcp__other__write'])
+    expect(adapter.requests).toHaveLength(1)
+  })
+
+  it('logs failures and denials for the operator and fails the call when the retry fails too', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'auto-review-log-'))
+    try {
+      const logFile = join(dir, 'review.jsonl')
+      const { ctx, adapter } = await harness(
+        [
+          decisionChunks('null'),
+          decisionChunks('[]'),
+          decisionChunks('{"risk":"high","decision":"deny","reason":"exfiltration"}'),
+        ],
+        undefined,
+        { trustedTools: [], logFile },
+      )
+      const probe = registerProbe(ctx)
+      const warn = vi.spyOn(ctx.logger, 'warn')
+      ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('rejected'))
+      const results = []
+      for (const id of ['log-failure', 'log-deny']) {
+        const { session, agent } = autoSession(ctx, id)
+        appendHeader(session, [{ name: 'probe', description: 'probe', parameters: { type: 'object' } }])
+        session.append('turn/start', { turn: 1 })
+        const callId = ToolCallId(`${id}-call`)
+        appendAssistant(session, [{ type: 'tool-call', id: callId, name: 'probe', arguments: '{}' }])
+        appendNativeCall(session, callId, 'probe', '{}')
+        results.push(await executeToolFixture(ctx, {
+          signal: new AbortController().signal, callId, name: 'probe', arguments: {}, agent,
+        }))
+      }
+
+      // the retry carried the first rejected reply; its own failure is the reported one
+      expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('REJECTED_PREVIOUS_REPLY')
+      expectReviewFailure(results[0]!, 'auto-review: reviewer output must be one JSON object')
+      expect(results[1]).toMatchObject({ isError: true, error: { message: 'the user rejected tool "probe"' } })
+      expect(probe.runs()).toBe(0)
+      expect(warn).toHaveBeenCalledTimes(3)
+      const records = readFileSync(logFile, 'utf8').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
+      expect(records).toEqual([
+        expect.objectContaining({ event: 'failure', tool: 'probe', repair: false, reply: 'null' }),
+        expect.objectContaining({ event: 'failure', tool: 'probe', repair: true, reply: '[]' }),
+        expect.objectContaining({ event: 'deny', tool: 'probe', risk: 'high', reason: 'exfiltration', outcome: 'ask' }),
+      ])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
   it('reports a non-Error reviewer failure by its string value', async () => {
     const { ctx } = await harness([])

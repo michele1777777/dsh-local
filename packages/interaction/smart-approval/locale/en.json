@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Smart approval",
+    "description": "A reviewer model approves routine tool calls and asks you about the rest."
+  }
+}

@@ -358,18 +358,20 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
     }
   }, SPAWN_TIMEOUT_MS + 5_000)
 
-  it('requires a profile and rejects removed flags', async () => {
-    const bare = await runBuiltBin()
-    expect(bare.code).toBe(1)
-    expect(bare.stdout).toBe('')
-    expect(bare.stderr).toContain('--profile <name> is required')
+  // A bare `dsh` boots the tui chat (and flags the launcher no longer owns
+  // reach it), so only launcher-owned usage errors are checked here.
+  it('prints launcher help and rejects launcher usage errors', async () => {
+    const empty = await runBuiltBin(['--profile', ''])
+    expect(empty.code).toBe(1)
+    expect(empty.stdout).toBe('')
+    expect(empty.stderr).toContain('--profile needs a name')
     const help = await runBuiltBin(['--help'])
     expect(help.code).toBe(0)
     await expect(help.stdout).toMatchFileSnapshot('./expected/launcher-help.txt')
     expect(help.stdout).toContain('dsh --profile web')
     expect(help.stdout).toContain('dsh plugin --profile')
     expect(help.stdout).not.toMatch(/^\s+(?:tui|meta|upgrade)\b/mu)
-    for (const removed of [['--config', 'x.yml'], ['-p', 'task'], ['web', '--profile', 'tui']]) {
+    for (const removed of [['--from-default-profile', 'web'], ['web', '--profile', 'tui']]) {
       const result = await runBuiltBin(removed)
       expect(result.code).toBe(1)
     }
@@ -677,7 +679,8 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
   it('fails loud on a nonexistent profile with the plugin-command hint', async () => {
     const home = mkdtempSync(join(tmpdir(), 'dsh-missing-profile-'))
     try {
-      const result = await runBuiltBin(['nope'], { DSH_HOME: home })
+      // A bare unknown word is the chat's prompt; name the profile explicitly.
+      const result = await runBuiltBin(['--profile', 'nope'], { DSH_HOME: home })
       expect(result.code).toBe(1)
       expect(result.stderr).toContain('profile "nope" does not exist')
       expect(result.stderr).toContain('dsh plugin --profile nope add')

@@ -116,6 +116,12 @@ export interface PiAiProviderProfile {
   /** Endpoint for this route's models; defaults to the installed catalog's endpoint. */
   baseURL?: string
   /**
+   * Launch-environment variable whose non-empty value replaces `baseURL`, so one shipped route can reach a
+   * server whose address differs per machine. Read when the profiles resolve; an unset or empty variable keeps
+   * `baseURL`.
+   */
+  baseURLEnv?: string
+  /**
    * This route's model catalog. Omission serves the installed catalog for the
    * route unchanged; an explicit list replaces it, each entry defaulting its
    * unset fields from the installed model of the same id.
@@ -205,6 +211,12 @@ export interface PiAiProviderProfile {
   requestImageMaxBytes?: number
   /** Provider-owned model-request retry policy; omission uses normal mode with five retries. */
   retryPolicy?: RetryPolicyConfig
+  /**
+   * The OpenAI-completions server keeps a prompt cache per Session: requests carry the Session-derived
+   * `prompt_cache_key`, and `preserve_context: true` while an `llm/preserve-context` listener asks for it.
+   * Off by default, because servers that do not implement these fields may reject them.
+   */
+  sessionCache?: boolean
 }
 
 /** Validated profile with its route stamped and every adapter-owned default resolved. */
@@ -357,6 +369,7 @@ const profile = z.object({
   displayName: z.string(),
   api: z.union(supportedProtocols()),
   baseURL: z.string(),
+  baseURLEnv: z.string(),
   models: z.array(modelProfile),
   modelOverrides: z.dict(modelOverride),
   compat: compatProfile,
@@ -377,6 +390,7 @@ const profile = z.object({
   requestImagePixelBudget: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET),
   requestImageMaxBytes: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_MAX_BYTES),
   retryPolicy: RetryPolicySchema,
+  sessionCache: z.boolean(),
 })
 
 /** Runtime schema for {@link Config}. */
@@ -436,22 +450,30 @@ function assertValidHeaders(provider: string, headers: Readonly<Record<string, s
  * routes. An omitted dict resolves to the empty, dormant route set.
  * @param providers - configured provider profiles keyed by route.
  * @param validation - writes require a complete catalog; stored reads retain catalog diagnostics.
+ * @param environment - reads a launch-environment variable for `baseURLEnv`; omission keeps every `baseURL`.
  * @returns validated profiles in configuration order.
  */
 export function resolveProfiles(
   providers: Readonly<Record<string, PiAiProviderProfile>> | undefined,
   validation: 'strict' | 'deferred' = 'strict',
+  environment?: (name: string) => string | undefined,
 ): Map<string, ResolvedPiAiProviderProfile> {
   if (Array.isArray(providers)) {
     throw new Error('llm-pi-ai: providers is now a dict keyed by provider route, not an array of profiles')
   }
   const entries = Object.entries(providers ?? {})
   const resolved = new Map<string, ResolvedPiAiProviderProfile>()
-  for (const [provider, source] of entries) {
-    rejectRemovedFields(provider, source)
+  for (const [provider, configured] of entries) {
+    rejectRemovedFields(provider, configured)
     if (provider.length === 0) throw new Error('llm-pi-ai: provider names must be non-empty')
-    if (source.baseURL !== undefined && source.baseURL.length === 0) {
+    if (configured.baseURL !== undefined && configured.baseURL.length === 0) {
       throw new Error(`llm-pi-ai: provider "${provider}" has an empty baseURL`)
+    }
+    const { baseURLEnv, ...source } = configured
+    if (baseURLEnv !== undefined) {
+      if (baseURLEnv.length === 0) throw new Error(`llm-pi-ai: provider "${provider}" has an empty baseURLEnv`)
+      const endpoint = environment?.(baseURLEnv)
+      if (endpoint !== undefined && endpoint.length > 0) source.baseURL = endpoint
     }
     if (source.displayName !== undefined && source.displayName.length === 0) {
       throw new Error(`llm-pi-ai: provider "${provider}" has an empty displayName`)

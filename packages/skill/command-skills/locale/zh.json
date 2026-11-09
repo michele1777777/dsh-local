@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "技能命令",
+    "description": "使用 /skills 列出当前会话已安装的技能。"
+  }
+}

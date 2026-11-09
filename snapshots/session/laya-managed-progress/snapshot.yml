@@ -1,0 +1,11 @@
+version: 1
+scenario: laya-managed-progress
+profile: headless
+composition: laya-managed-progress
+recording: authored
+platform: posix
+header:
+  class: laya-managed-progress
+  pin: true
+  systemPromptSource: compaction-recovery
+  changes: 1

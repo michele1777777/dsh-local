@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Éditeur de conversations préparées",
+    "description": "Modifie une conversation préparée pour /prechat et affiche les messages importés."
+  }
+}

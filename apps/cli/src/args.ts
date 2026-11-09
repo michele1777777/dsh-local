@@ -10,11 +10,17 @@
  * `dsh --profile tui --resume abc` boots the tui profile with `--resume abc`,
  * and `dsh --profile web -h` prints the web app's help, not this one's.
  *
- * `dsh <name>` abbreviates `dsh --profile <name>`; `plugin` manages a profile's
- * plugin dependencies by forwarding to pnpm.
+ * A bare `dsh` boots the `tui` chat profile, and words that do not name a
+ * profile are its opening prompt. `dsh <name>` abbreviates `dsh --profile
+ * <name>` when `<name>` names a profile (see {@link namesProfile}); a leading
+ * `-web`/`--web` spells `dsh web`; `plugin` manages a profile's plugin
+ * dependencies by forwarding to pnpm.
  * @module @deepseek-ai/dsh/args
  */
 
+import { existsSync } from 'node:fs'
+import { resolveProfileDir } from '@deepseek-ai/dsh-app-boot'
+import { PROFILE_TEMPLATES } from '@deepseek-ai/dsh-official-bundles'
 import { Command, CommanderError, InvalidArgumentError } from 'commander'
 
 /** Boot a named profile and hand it the invocation's inner arguments. */
@@ -80,21 +86,73 @@ function selectProfile(value: string, previous?: string): string {
   return value
 }
 
+/** The profile a bare `dsh` boots: the interactive terminal chat. */
+const DEFAULT_PROFILE = 'tui'
+
+/** The Electron-owned profile name; named only to be rejected, never booted. */
+const ELECTRON_PROFILE = 'desktop'
+
+/** Launcher-owned flags: a leading word they follow can only be a profile name. */
+const LAUNCHER_FLAGS = ['--profile', '--from-default-profile', '--patch', '--dump-config', '--dump-config-schema', '--dump-default-config']
+
+/** Whether a custom profile with this name is initialized under `$DSH_HOME/profiles`. */
+export type ProfileLookup = (name: string) => boolean
+
+/**
+ * Report whether `$DSH_HOME/profiles/<name>` exists.
+ * @param name - the candidate profile name.
+ * @returns false for a missing directory or a name no profile can have.
+ */
+export const profileDirectoryExists: ProfileLookup = (name) => {
+  try {
+    return existsSync(resolveProfileDir(name))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Decide whether the leading word of `dsh <word> ...` selects a profile or is
+ * the chat's opening prompt. It selects a profile when it is a shipped
+ * template name (or the reserved Electron name, so that is rejected loudly),
+ * when the next token is a launcher flag (`dsh rescue --from-default-profile
+ * web`), or when that custom profile already exists. `dsh -- <words>` always
+ * reaches the chat.
+ * @param word - the first argv token (not a flag, not `plugin`).
+ * @param next - the token after it, if any.
+ * @param profileExists - the custom-profile lookup.
+ * @returns true to expand the word into `--profile <word>`.
+ */
+function namesProfile(word: string, next: string | undefined, profileExists: ProfileLookup): boolean {
+  if (word === '' || Object.hasOwn(PROFILE_TEMPLATES, word) || word.toLowerCase() === ELECTRON_PROFILE) return true
+  if (next !== undefined && LAUNCHER_FLAGS.some(flag => next === flag || next.startsWith(`${flag}=`))) return true
+  return profileExists(word)
+}
+
 function rejectElectronProfile(program: Command, profile: string): void {
-  if (profile.toLowerCase() === 'desktop') {
+  if (profile.toLowerCase() === ELECTRON_PROFILE) {
     program.error('error: profile "desktop" is managed exclusively by the Electron application')
   }
 }
 
 /** The launcher's own help text; each app prints its own. */
 const HELP_EXAMPLES = `
+A leading word boots a profile when it names a shipped profile, an existing
+$DSH_HOME/profiles/<name>, or is followed by a launcher flag; otherwise the
+words open the terminal chat (the tui profile) as its prompt.
+
 Examples:
-  dsh web                                   boot the web profile (same as: dsh --profile web)
+  dsh                                       open the terminal chat in this directory
+  dsh "fix the failing tests"               open the chat with an opening prompt
+  dsh --continue                            continue this directory's most recent Session
+  dsh --resume [session]                    resume a Session, or pick one of this directory
+  dsh -- web                                open the chat with the prompt "web"
+  dsh web                                   boot the web profile (same as: dsh --web, dsh --profile web)
   dsh rescue --from-default-profile web
                                             recreate rescue from the shipped web template, then boot it
   dsh headless "run the tests"              answer one task, print the result, and exit
-  dsh tui --patch ./extra.yml               boot a custom profile with one extra overlay
-  dsh tui --resume <session>                arguments after the launcher flags reach the app
+  dsh tui --patch ./extra.yml               boot a profile with one extra overlay
+  dsh tui --help                            the terminal chat's own flags and help
   dsh web --help                            the web app's own flags and help
   dsh plugin --profile tui add <package>    install a plugin into the tui profile
 `
@@ -141,10 +199,20 @@ function resolveBoot(program: Command, profile: string, options: BootOptions, ar
  * @param argv - arguments after the Node binary and script.
  * @param version - version string printed by `--version`.
  * @param manageDesktopProfile - permit Desktop's installed carrier to manage its reserved profile's plugins.
+ * @param profileExists - which non-shipped names are initialized custom profiles (tests inject one).
  * @returns the resolved invocation.
  */
-export function parseDshArgs(argv: readonly string[], version: string, manageDesktopProfile = false): DshInvocation {
-  const first = argv[0]
+export function parseDshArgs(
+  argv: readonly string[],
+  version: string,
+  manageDesktopProfile = false,
+  profileExists: ProfileLookup = profileDirectoryExists,
+): DshInvocation {
+  // `-web` and `--web` are leading spellings of `dsh web`, so the web interface
+  // stays one token away now that a bare `dsh` is the chat. Only the first
+  // token is rewritten: further on it belongs to the booted app.
+  const normalized = argv[0] === '-web' || argv[0] === '--web' ? ['web', ...argv.slice(1)] : argv
+  const first = normalized[0]
   let resolved: DshInvocation | undefined
   // Annotated, not inferred: the actions below call back into `program`, and an
   // inferred type would be circular through its own chain.
@@ -152,7 +220,7 @@ export function parseDshArgs(argv: readonly string[], version: string, manageDes
   program
     .name('dsh')
     .version(version, '-V, --version', 'output the version number')
-    .usage('[--profile] <name> [options] [app-args...]\n       dsh plugin --profile <name> <pnpm-args...>')
+    .usage('[options] [chat-args...]\n       dsh [--profile] <name> [options] [app-args...]\n       dsh plugin --profile <name> <pnpm-args...>')
     .description('dsh: boot a DeepSeek Harness profile — an ordered stack of plugin-bundle patch layers under your own overrides.')
     .addHelpText('after', HELP_EXAMPLES)
     .exitOverride()
@@ -164,7 +232,7 @@ export function parseDshArgs(argv: readonly string[], version: string, manageDes
     .allowUnknownOption()
     .passThroughOptions()
     .enablePositionalOptions()
-    .argument('[args...]', 'arguments for the booted profile\'s app (see: dsh --profile <name> --help)')
+    .argument('[args...]', 'arguments for the booted profile\'s app, or the chat\'s (see: dsh --profile <name> --help)')
     .option('--profile <name>', 'the profile under $DSH_HOME/profiles to boot', selectProfile)
     .option('--from-default-profile <name>', 'replace a custom profile with a fresh copy of a shipped profile template')
     .option('--patch <path>', 'extra patch-list overlay applied after the profile layer (repeatable)', collect)
@@ -176,7 +244,15 @@ export function parseDshArgs(argv: readonly string[], version: string, manageDes
       // `dsh -h` (no profile to hand it to) must print.
       if (options.profile === undefined) {
         if (args.some(argument => argument === '-h' || argument === '--help')) program.help()
-        program.error('error: --profile <name> is required')
+        // A template initializes a named custom target, and the chat's own
+        // profile is shipped, so there is nothing for it to create.
+        if (options.fromDefaultProfile !== undefined) {
+          program.error('error: --from-default-profile needs a target profile (dsh <name> --from-default-profile <template>)')
+        }
+        // No profile selected: the terminal chat, with every inner argument
+        // (prompt words, --continue, --resume [id], ...) handed to it unchanged.
+        resolved = resolveBoot(program, DEFAULT_PROFILE, options, args)
+        return
       }
       const profile = options.profile
       if (profile === '') program.error('error: --profile needs a name')
@@ -204,8 +280,9 @@ export function parseDshArgs(argv: readonly string[], version: string, manageDes
 
   try {
     const expanded = first !== undefined && !first.startsWith('-') && first !== 'plugin'
-      ? ['--profile', ...argv]
-      : argv
+      && namesProfile(first, normalized[1], profileExists)
+      ? ['--profile', ...normalized]
+      : normalized
     program.parse(expanded, { from: 'user' })
   } catch (error) {
     return process.exit(error instanceof CommanderError ? error.exitCode : 1)

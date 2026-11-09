@@ -1,0 +1,97 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "jsx": "react-jsx"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/loader"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/agent-default-model"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../boot/cmdline"
+    },
+    {
+      "path": "../../session-query/session-query"
+    },
+    {
+      "path": "../../fs/fs"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../interaction/commands"
+    },
+    {
+      "path": "../../interaction/user-approval"
+    },
+    {
+      "path": "../../interaction/user-questions"
+    },
+    {
+      "path": "../../api/session-controller/tsconfig.host.json"
+    },
+    {
+      "path": "../../api/job-controller/tsconfig.host.json"
+    },
+    {
+      "path": "../../client/file-upload/tsconfig.host.json"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../llm/token-meter"
+    },
+    {
+      "path": "../../compaction/compaction"
+    },
+    {
+      "path": "../../session/session-title"
+    },
+    {
+      "path": "../../attachment/attachment"
+    },
+    {
+      "path": "../../goal/goal"
+    },
+    {
+      "path": "../../jobs/jobs"
+    },
+    {
+      "path": "../../interaction/smart-approval"
+    },
+    {
+      "path": "../../compaction/compaction-laya-pruner"
+    },
+    {
+      "path": "../../util/home-paths"
+    },
+    {
+      "path": "../../interaction/permission-presets"
+    }
+  ]
+}

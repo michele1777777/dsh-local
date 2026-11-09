@@ -89,6 +89,8 @@ kind: "package-reference"
 
 `request()` 先追加携带请求身份与工具的 `approval/asked`，再追加携带最终结果的 `approval/decided`；确切追加字段见 [`src/index.ts`](src/index.ts)。两者都只写入日志。
 
+`recordReview()` 为当前请求附加经过校验的可选机器审核元数据，不改变请求身份、权威结果或模型上下文。元数据按异步请求隔离，即使并发调用借用同一对象也不会混淆。可选审核器见[智能审批](../smart-approval/README.zh.md)。
+
 </details>
 
 -----

@@ -1,0 +1,40 @@
+# Bilingual-pair consistency record for local-first.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/user/guide/local-first.md
+/run-deepseek-harness-on-local-models:
+  en: 6e5f82004b832ffc
+  zh: ba02b8fe54233fbf
+/run-deepseek-harness-on-local-models/what-the-distribution-adds:
+  en: a0d87a49572dc93d
+  zh: dcba4f28a0e1d2a7
+/run-deepseek-harness-on-local-models/prerequisites:
+  en: d3f7dcb9a20cd577
+  zh: 428a06b273946e99
+/run-deepseek-harness-on-local-models/start-the-terminal-app:
+  en: 170c0400a694ccc4
+  zh: 69e4b32d57d70430
+/run-deepseek-harness-on-local-models/start-the-terminal-app/on-windows:
+  en: 3ad877c97078344a
+  zh: 1b879ca5559d6a6a
+/run-deepseek-harness-on-local-models/local-model-routes:
+  en: 094cbf796d559ecf
+  zh: 8a5a2fe96144702c
+/run-deepseek-harness-on-local-models/prune-context-with-a-decision-model:
+  en: 2a7b694c1b319965
+  zh: 989dbfb6ce255970
+/run-deepseek-harness-on-local-models/prune-context-with-a-decision-model/connect-a-decision-service:
+  en: ca559178617c8be6
+  zh: 0b17c2fbc4091431
+/run-deepseek-harness-on-local-models/prune-context-with-a-decision-model/enable-pruning:
+  en: b03ede4811b1e4c2
+  zh: 73ca680033919dea
+/run-deepseek-harness-on-local-models/web-search-with-exa-or-tavily:
+  en: ed12ae3fb2791986
+  zh: bb6d9b04fde4f9cb
+/run-deepseek-harness-on-local-models/add-the-layers-to-other-profiles:
+  en: f8331aa417e5ab76
+  zh: 5a1f5f3e19ed2c2b
+/run-deepseek-harness-on-local-models/environment-variables:
+  en: d8d14f08c265b491
+  zh: c929503d9e0cec66

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Poda de contexto con Laya",
+    "description": "Poda el contexto antiguo de forma literal con el modelo Laya antes de la compactación por resumen."
+  }
+}

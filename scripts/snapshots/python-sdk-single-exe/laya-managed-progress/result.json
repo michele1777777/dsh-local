@@ -1,0 +1,7 @@
+{
+  "finalResponse": "PROACTIVE COMPACTION COMPLETE",
+  "phases": ["release", "start", "prune", "stop", "restore"],
+  "notificationPhases": ["release", "start", "prune", "stop", "restore"],
+  "outcome": "fallback",
+  "summaryAfterPruning": true
+}

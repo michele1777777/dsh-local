@@ -119,6 +119,8 @@ export interface PiAiAdapterOptions {
   prepareHeaders?: (request: PiAiRequestHeaderContext, headers: Headers) => Headers
   /** Resolve the optional durable attachment service at request time. */
   resolveAttachments?: () => AttachmentStore | undefined
+  /** Resolve request-scoped context retention on supported local servers. */
+  preserveContext?: (options: GenerateOptions) => boolean
   /** Bridge one attachment reference into the current model-tool execution world. */
   resolveImageAccess?: (attachments: AttachmentStore, ref: ImageAttachmentRef) => ImageAttachmentAccess | undefined
   /**
@@ -234,6 +236,16 @@ function requestHeaderDiagnostic(error: unknown): string {
   return error instanceof Error
     ? error.message
     : 'the contributing plugin threw a non-Error value; throw an Error with a safe diagnostic'
+}
+
+/**
+ * Build the local-server prompt cache key that separates a Session's auxiliary purposes.
+ * @param sessionId - Session identity stamped on the request.
+ * @param purpose - forwarded auxiliary purpose; producer packages declare purposes outside this program.
+ * @returns the Session id, suffixed with the purpose when one is present.
+ */
+function sessionCacheKey(sessionId: NonNullable<GenerateOptions['sessionId']>, purpose: string | undefined): string {
+  return purpose === undefined ? String(sessionId) : `${String(sessionId)}:${purpose}`
 }
 
 /** Prepare request-owned headers without allowing contributors to replace attribution. */
@@ -457,11 +469,29 @@ export class PiAiAdapter extends LlmAdapter {
             maxBytes: profile.requestImageMaxBytes,
           },
         }, onReplayDegrade, updates.systemPromptUpdate === 'in-history')
+      const sessionCache = model.api === 'openai-completions' && profile.sessionCache === true
+      const preserveContext = sessionCache && this.config.preserveContext?.(options) === true
+      const promptCacheKey =
+        !sessionCache || options.sessionId === undefined
+          ? undefined
+          : sessionCacheKey(options.sessionId, options.purpose)
+
       const events = snapshot.models.streamSimple(model, context, {
         ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
+
+        onPayload: (payload) => {
+          if (promptCacheKey === undefined && !preserveContext) return undefined
+
+          return {
+            ...(payload as Record<string, unknown>),
+            ...promptCacheKey === undefined ? {} : { prompt_cache_key: promptCacheKey },
+            ...preserveContext ? { preserve_context: true } : {},
+          }
+        },
+
         signal: watchdog.signal,
         headers: requestHeaders(profile.headers, options, model.baseUrl, this.config.prepareHeaders),
       })

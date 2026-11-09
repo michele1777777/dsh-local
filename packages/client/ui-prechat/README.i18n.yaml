@@ -1,0 +1,40 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/client/ui-prechat/README.md
+/:
+  en: 76883f34d9c0d00f
+  zh: d2383a7fa1076f0c
+/deepseek-ai-dsh-client-ui-prechat:
+  en: c87631246d2a91ca
+  zh: 2e9d77e8597e663a
+/deepseek-ai-dsh-client-ui-prechat/summary:
+  en: 68ba73c316b4852d
+  zh: aae629524e324034
+/deepseek-ai-dsh-client-ui-prechat/table-of-contents:
+  en: 02ae2d7f43e36490
+  zh: 95bfb57ff672af1c
+/deepseek-ai-dsh-client-ui-prechat/use:
+  en: 7b177b54661c0069
+  zh: 397534f7274b4444
+/deepseek-ai-dsh-client-ui-prechat/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-client-ui-prechat/model-experience/imported-conversation-history:
+  en: 26d23c7c0867055b
+  zh: 2394cc44e4292a11
+/deepseek-ai-dsh-client-ui-prechat/model-experience/imported-conversation-history/what-the-model-sees:
+  en: c06f279634d40a7c
+  zh: aea042c872c5adb8
+/deepseek-ai-dsh-client-ui-prechat/model-experience/imported-conversation-history/token-effect:
+  en: c77921164ce06e9c
+  zh: 760422967a5acc36
+/deepseek-ai-dsh-client-ui-prechat/model-experience/imported-conversation-history/kv-cache-effect:
+  en: bc205adc8131ed6c
+  zh: 702e56d2cd228fa3
+/deepseek-ai-dsh-client-ui-prechat/known-limitations-and-deferred-work:
+  en: 6a29c8443f5a259b
+  zh: bbe5a88d931344fa
+/deepseek-ai-dsh-client-ui-prechat/known-limitations-and-deferred-work/dev-note:
+  en: 45ec51258109208a
+  zh: 7aeea62eda52b83b

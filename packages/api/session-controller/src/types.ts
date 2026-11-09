@@ -291,6 +291,8 @@ export interface SessionSelectModelRequest extends ModelSelection {
 
 /** Accepted model selection after Host resolution. */
 export interface SessionSelectModelValue {
+  /** A new Session selected by a model-target policy; the source remains unchanged. */
+  readonly sessionId?: SessionId
   readonly selected: ModelSelection
 }
 

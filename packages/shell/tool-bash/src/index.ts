@@ -19,6 +19,7 @@ import { isAbsolute, sep } from 'node:path'
 import { defineTool, TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, TerminalCallView, ToolDefinition, ToolExecution, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
+import { waitForForegroundJob } from '@deepseek-ai/dsh-jobs'
 import type { JobId, JobRegistry, JobView } from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-shell-env'
@@ -309,9 +310,9 @@ export function apply(ctx: Context, config: Config = {}): void {
         if (settled.status !== 'running' && settled.status !== 'stopping') registry.remove(attached.id, owner)
         return settled
       }
-      let view: JobView
+      let view: JobView | undefined
       try {
-        view = await registry.wait(attached.id, timeoutMs, owner, exec.signal)
+        view = await waitForForegroundJob(registry, attached.id, timeoutMs, exec.agent, exec.signal)
       } catch {
         // A wait on the caller's own live job rejects only for the caller's
         // abort: the model's call is over, so the command goes with it, as
@@ -319,6 +320,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         await stop('tool call aborted')
         throw toolAborted()
       }
+      if (view === undefined) return { kind: 'background' as const, cwd: spec.workdir, jobId: attached.id }
       if ((view.status === 'running' || view.status === 'stopping') && attached.process() === undefined) {
         // The wait expired while preparation still ran: nothing is running
         // to keep, so this is the deadline's preparation timeout, with the

@@ -8,7 +8,7 @@ import SessionStore, {
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import PermissionPresetService, {
-  AUTO_PRESET, CUSTOM_PRESET,
+  AUTO_PRESET, CUSTOM_PRESET, SMART_PRESET,
 } from '@deepseek-ai/dsh-permission-presets'
 import { liveConfig } from '../../../settings/settings/tests/live-config.ts'
 
@@ -468,5 +468,60 @@ describe('new-session default', () => {
     expect(() => ctx.permissionPresets.defaultPreset).toThrow(/unknown default preset/)
     await configurations.get(ctx)!.update({ defaultPreset: 'workspace-write' })
     expect(ctx.permissionPresets.defaultPreset).toBe('workspace-write')
+  })
+})
+
+
+describe('Smart permission catalog', () => {
+  it('registers effect-scoped Smart without making it a new-session default', async () => {
+    const ctx = await mounted()
+    try {
+      const fiber = await ctx.plugin(Object.assign((pluginCtx: Context) => {
+        pluginCtx.permissionPresets.registerSmart(() => {})
+      }, { inject: ['permissionPresets'] }))
+      expect(ctx.permissionPresets.names).toContain(SMART_PRESET)
+      expect(ctx.permissionPresets.resolve(SMART_PRESET)).toMatchObject({ sandbox: 'workspace-write', approval: 'ask' })
+      expect(ctx.permissionPresets.current(freshSession('smart-default'))).toBe('workspace-write')
+      await fiber.dispose()
+      expect(ctx.permissionPresets.names).not.toContain(SMART_PRESET)
+      expect(() => ctx.permissionPresets.resolve(SMART_PRESET)).toThrow(/unknown/)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('records Smart identity without changing already-matching workspace knobs', async () => {
+    const ctx = await mounted()
+    try {
+      await ctx.plugin(Object.assign((pluginCtx: Context) => {
+        pluginCtx.permissionPresets.registerSmart(() => {})
+      }, { inject: ['permissionPresets'] }))
+      const session = freshSession('smart-same-bundle')
+      ctx.permissionPresets.set(session, 'workspace-write')
+      const before = session.snapshotEvents().length
+      ctx.permissionPresets.set(session, SMART_PRESET)
+      expect(session.snapshotEvents().slice(before).map(event => [event.type, event.data])).toEqual([
+        ['permission/preset', { preset: SMART_PRESET }],
+      ])
+      expect(ctx.permissionPresets.current(session)).toBe(SMART_PRESET)
+      ctx.permissionPresets.set(session, 'workspace-write')
+      expect(ctx.permissionPresets.current(session)).toBe('workspace-write')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('fails before a write when the reviewer refuses admission', async () => {
+    const ctx = await mounted()
+    try {
+      await ctx.plugin(Object.assign((pluginCtx: Context) => {
+        pluginCtx.permissionPresets.registerSmart(() => { throw new Error('reviewer closing') })
+      }, { inject: ['permissionPresets'] }))
+      const session = freshSession('smart-closed')
+      expect(() => { ctx.permissionPresets.set(session, SMART_PRESET) }).toThrow('reviewer closing')
+      expect(session.snapshotEvents()).toEqual([])
+    } finally {
+      await ctx.fiber.dispose()
+    }
   })
 })

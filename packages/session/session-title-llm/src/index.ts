@@ -156,7 +156,12 @@ export interface SessionTitleLlmPreparedRequest {
   readonly system: string
   /** Exact user message text supplied by the provider, including any framing. */
   readonly input: string
-  /** Exact human `user/message` seqs represented by `input`, in log order. */
+  /**
+   * Exact human `user/message` seqs represented by `input`, in log order. An
+   * empty list means the input cites no human message (a `/goal` objective):
+   * the call then runs without a `session/title-llm-request` record, which may
+   * cite only human messages.
+   */
   readonly messageSeqs: readonly SessionSeq[]
   /**
    * Provider-owned reasoning selection for the captured route. The execution
@@ -241,9 +246,6 @@ export async function executeSessionTitleLlm(
   prepared: SessionTitleLlmPreparedRequest,
 ): Promise<SessionTitleLlmResponse> {
   request.signal.throwIfAborted()
-  if (prepared.messageSeqs.length === 0) {
-    throw new Error('session-title-llm: at least one source message is required')
-  }
   const inputBytes = Buffer.byteLength(prepared.input, 'utf8')
   if (inputBytes > config.maxInputBytes) {
     throw new Error(`session-title-llm: input is ${inputBytes} bytes, exceeding maxInputBytes ${config.maxInputBytes}`)
@@ -270,7 +272,7 @@ export async function executeSessionTitleLlm(
     purpose: 'session-title',
     signal: callDeadline.signal,
   })
-  request.session.append('session/title-llm-request', {
+  if (prepared.messageSeqs.length > 0) request.session.append('session/title-llm-request', {
     titleProvider,
     messageSeqs: [...prepared.messageSeqs],
     route,

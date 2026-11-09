@@ -84,6 +84,9 @@
       "path": "../product-analytics/tsconfig.client.json"
     },
     {
+      "path": "../ui-commands"
+    },
+    {
       "path": "../ui-context-menu"
     }
   ]

@@ -9,7 +9,7 @@ kind: "package-group"
 
 ## 概述
 
-本组列出 `dsh --profile` 使用的可安装 patch 层。每个包都声明 `dsh.bundle.patch`；启动器会叠放这些 patch 文档来组装具名 profile。`web`、`headless`、`acp` 与 `sdk` profile 以 `dsh-base` 为基础，`sdk-minimal` 则由一个组合包提供完整配置树。领域包也可以在本目录之外声明附加层。
+本组列出 `dsh --profile` 使用的可安装 patch 层。每个包都声明 `dsh.bundle.patch`；启动器会叠放这些 patch 文档来组装具名 profile。`web`、`headless`、`acp`、`sdk` 与 `tui` profile 以 `dsh-base` 为基础，`sdk-minimal` 则由一个组合包提供完整配置树。领域包也可以在本目录之外声明附加层。
 
 ## 目录
 
@@ -28,6 +28,10 @@ kind: "package-group"
 | [`headless`](headless/README.zh.md) | 基于 base 的一次性命令行任务应用 | `headless-runner` |
 | [`sdk-app`](sdk-app/README.zh.md) | 基于 base 的 SDK JSON-RPC stdio 应用 | 挂载 SDK 服务器 |
 | [`sdk-minimal`](sdk-minimal/README.zh.md) | 不使用 base 或 Web 的独立极简 SDK 应用 | —（完整 patch 树） |
+| [`tui-app`](tui-app/README.zh.md) | 基于 base 和 Web 应用 preset 的交互式终端应用 | 挂载终端应用 |
+| [`local-base`](local-base/README.zh.md) | 基于 base 的本地模型路由、摘要路由、Laya 修剪和搜索提供方 | —（仅 patch） |
+| [`local-presets`](local-presets/README.zh.md) | 为本地模型加入 Laya 修剪和摘要路由的 standard preset | —（仅 patch） |
+| [`local-web`](local-web/README.zh.md) | Laya 和预备对话的 Web 面板，以及 Smart 预设 | —（仅 patch） |
 
 内置组合包从 dsh 安装目录解析；树外（out-of-tree）组合包通过 `dsh plugin --profile <name> add <package>` 安装进 profile。
 

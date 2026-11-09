@@ -706,6 +706,7 @@ const legacySdkCompositions = new Set([
   'default',
   'dynamic-tool-updates',
   'image',
+  'laya-managed-progress',
   'ptc',
   'sdk-account-provider-signout',
   'sdk-default',

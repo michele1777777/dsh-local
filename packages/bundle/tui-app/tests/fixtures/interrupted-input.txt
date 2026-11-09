@@ -1,0 +1,6 @@
+user: active
+assistant: partial
+user: first correction
+assistant: partial
+user: second correction
+assistant: corrected

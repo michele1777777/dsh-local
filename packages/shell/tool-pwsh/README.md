@@ -218,3 +218,7 @@ These limits define when the tool is a poor fit or needs special care. They are 
 None.
 
 </details>
+
+### Human steering during job waits
+
+With background jobs enabled, human next-step input releases a `job_output` wait without cancelling the producer, and `job_output` returns the available output and current status. A registered foreground shell command stays attached while a steer waits for the next step. The human-input entry point that forces pending input, such as an empty Enter in the terminal, calls `ctx.jobs.releaseWaits(owner)`; the shell then returns its existing background handle and the job keeps running. The existing completion reporter subsequently notifies the owner. Explicit next-turn queuing releases neither wait, and ordinary cancellation retains its previous behavior.

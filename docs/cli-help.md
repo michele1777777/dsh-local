@@ -15,6 +15,9 @@ Run `pnpm run gen-cli-help` to regenerate; run `pnpm run verify-cli-help` to che
 - [`dsh headless`](#dsh-headless)
 - [`dsh sdk`](#dsh-sdk)
 - [`dsh sdk-minimal`](#dsh-sdk-minimal)
+- [`dsh tui`](#dsh-tui)
+- [`dsh tui resume`](#dsh-tui-resume)
+- [`dsh tui continue`](#dsh-tui-continue)
 - [`dsh web`](#dsh-web)
 
 <a id="dsh"></a>
@@ -23,15 +26,16 @@ Run `pnpm run gen-cli-help` to regenerate; run `pnpm run verify-cli-help` to che
 Invocations: `dsh --help`
 
 ```text
-Usage: dsh [--profile] <name> [options] [app-args...]
+Usage: dsh [options] [chat-args...]
+       dsh [--profile] <name> [options] [app-args...]
        dsh plugin --profile <name> <pnpm-args...>
 
 dsh: boot a DeepSeek Harness profile — an ordered stack of plugin-bundle patch
 layers under your own overrides.
 
 Arguments:
-  args                           arguments for the booted profile's app (see:
-                                 dsh --profile <name> --help)
+  args                           arguments for the booted profile's app, or the
+                                 chat's (see: dsh --profile <name> --help)
 
 Options:
   -V, --version                  output the version number
@@ -46,13 +50,22 @@ Options:
   --dump-default-config          print the profile tree without its user layer
                                  or --patch overlays and exit
 
+A leading word boots a profile when it names a shipped profile, an existing
+$DSH_HOME/profiles/<name>, or is followed by a launcher flag; otherwise the
+words open the terminal chat (the tui profile) as its prompt.
+
 Examples:
-  dsh web                                   boot the web profile (same as: dsh --profile web)
+  dsh                                       open the terminal chat in this directory
+  dsh "fix the failing tests"               open the chat with an opening prompt
+  dsh --continue                            continue this directory's most recent Session
+  dsh --resume [session]                    resume a Session, or pick one of this directory
+  dsh -- web                                open the chat with the prompt "web"
+  dsh web                                   boot the web profile (same as: dsh --web, dsh --profile web)
   dsh rescue --from-default-profile web
                                             recreate rescue from the shipped web template, then boot it
   dsh headless "run the tests"              answer one task, print the result, and exit
-  dsh tui --patch ./extra.yml               boot a custom profile with one extra overlay
-  dsh tui --resume <session>                arguments after the launcher flags reach the app
+  dsh tui --patch ./extra.yml               boot a profile with one extra overlay
+  dsh tui --help                            the terminal chat's own flags and help
   dsh web --help                            the web app's own flags and help
   dsh plugin --profile tui add <package>    install a plugin into the tui profile
 
@@ -168,6 +181,84 @@ Options:
 Example:
   dsh --profile sdk-minimal     serve one SDK runtime until its client disconnects
 
+```
+
+<a id="dsh-tui"></a>
+## `dsh tui`
+
+Invocations: `dsh tui --help`, `dsh --profile tui --help`
+
+```text
+Usage: dsh [options] [command] [prompt...]
+
+DeepSeek Harness · interactive terminal workspace
+
+Arguments:
+  prompt                             opening prompt; quote multiline prompts
+
+Options:
+  -r, --resume [id]                  resume ID/title, or open a searchable
+                                     picker
+  -c, --continue                     continue the latest active session in this
+                                     directory
+  --all                              include sessions from other directories in
+                                     the picker
+  -m, --model <provider/model>       select the model through the Web model
+                                     controller
+  --effort <effort>                  select an adapter-supported reasoning
+                                     effort
+  --preset <name>                    agent preset for a NEW session
+  -h, --help                         show terminal help
+
+Commands:
+  resume [options] [id] [prompt...]  resume a saved session; no ID opens the
+                                     picker
+  continue [prompt...]               continue the latest session in this
+                                     directory
+
+Examples:
+  dsh                          New chat
+  dsh "fix the failing tests"   New chat with an opening prompt
+  dsh resume                   Searchable saved-session picker
+  dsh resume --last            Continue latest activity in this directory
+  dsh resume --all             Browse sessions from every directory
+  dsh resume session-<uuid>    Resume exactly that session and its preset
+  dsh -c                      Same as dsh continue
+  dsh -r session-<uuid>        Same as dsh resume session-<uuid>
+
+Inside the chat: /help · /resume · /model · /compact · /queue
+Enter sends · Alt+Enter / Ctrl+J inserts a newline · Esc cancels
+
+```
+
+<a id="dsh-tui-resume"></a>
+## `dsh tui resume`
+
+Invocations: `dsh tui resume --help`, `dsh --profile tui resume --help`
+
+```text
+Usage: dsh resume [options] [id] [prompt...]
+
+resume a saved session; no ID opens the picker
+
+Options:
+  --last      continue the most recently active session
+  --all       show sessions from all directories
+  -h, --help  show terminal help
+```
+
+<a id="dsh-tui-continue"></a>
+## `dsh tui continue`
+
+Invocations: `dsh tui continue --help`, `dsh --profile tui continue --help`
+
+```text
+Usage: dsh continue [options] [prompt...]
+
+continue the latest session in this directory
+
+Options:
+  -h, --help  show terminal help
 ```
 
 <a id="dsh-web"></a>

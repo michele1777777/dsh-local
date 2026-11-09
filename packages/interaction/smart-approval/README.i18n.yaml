@@ -1,0 +1,67 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/interaction/smart-approval/README.md
+/:
+  en: 75feb700064b48ac
+  zh: 686804d3f8f99a15
+/deepseek-ai-dsh-smart-approval:
+  en: e3301c9d9d3dc076
+  zh: 583ce49f979bed4e
+/deepseek-ai-dsh-smart-approval/summary:
+  en: 64673d3835af13ef
+  zh: 2434e115c7746638
+/deepseek-ai-dsh-smart-approval/table-of-contents:
+  en: f3eaa8e9b418b43a
+  zh: 717d541c26f73946
+/deepseek-ai-dsh-smart-approval/use-this-package:
+  en: 18e3295b4da9f3b7
+  zh: 51a59548b2e7f77a
+/deepseek-ai-dsh-smart-approval/use-this-package/decisions-and-context:
+  en: 3ad31931511cd512
+  zh: 6ed61408f05ac34b
+/deepseek-ai-dsh-smart-approval/use-this-package/limits:
+  en: 1a2d67315d71c936
+  zh: d75aaa66688ba9a2
+/deepseek-ai-dsh-smart-approval/use-this-package/audit-and-presentation:
+  en: 4107c267df6c6d85
+  zh: dbfad1b2df25bd75
+/deepseek-ai-dsh-smart-approval/further-exploration:
+  en: e2ebf2f704d4e0f9
+  zh: 7193128e7baaffce
+/deepseek-ai-dsh-smart-approval/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-smart-approval/model-experience/main-conversation:
+  en: dbfebce412391407
+  zh: 0606aa4b2aab8134
+/deepseek-ai-dsh-smart-approval/model-experience/main-conversation/what-the-model-sees:
+  en: 5d3b6c5e65001c1b
+  zh: 0a1408f5705adb5f
+/deepseek-ai-dsh-smart-approval/model-experience/main-conversation/token-effect:
+  en: fc7cfa0c1799678b
+  zh: 213ef5a9ba33741c
+/deepseek-ai-dsh-smart-approval/model-experience/main-conversation/kv-cache-effect:
+  en: dbba21306344657c
+  zh: 5cbd2d03e7351e51
+/deepseek-ai-dsh-smart-approval/model-experience/auxiliary-reviewer-request:
+  en: 36c3ad7ba2bff3f1
+  zh: 4c67a5382ae80990
+/deepseek-ai-dsh-smart-approval/model-experience/auxiliary-reviewer-request/what-the-model-sees:
+  en: 5a333756846476c2
+  zh: c36a44732baf72a8
+/deepseek-ai-dsh-smart-approval/model-experience/auxiliary-reviewer-request/what-the-model-sees/reviewer-system-prompt:
+  en: 3c91cb3bc9613953
+  zh: 787693fd7db465a0
+/deepseek-ai-dsh-smart-approval/model-experience/auxiliary-reviewer-request/token-effect:
+  en: 058dc979f0f7d46d
+  zh: ffd00d634cdf7454
+/deepseek-ai-dsh-smart-approval/model-experience/auxiliary-reviewer-request/kv-cache-effect:
+  en: 229abb0d3529adbd
+  zh: b4563ae92fca7a1d
+/deepseek-ai-dsh-smart-approval/known-limitations-and-deferred-work:
+  en: df1e98e781fb121c
+  zh: 10072dac4488b23e
+/deepseek-ai-dsh-smart-approval/known-limitations-and-deferred-work/dev-note:
+  en: 0a1253c6f7b5e8b9
+  zh: 9f56528562c7c914

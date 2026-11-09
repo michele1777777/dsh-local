@@ -1,0 +1,87 @@
+# Local-first host plane for this distribution, layered right after @deepseek-ai/dsh-base.
+#
+# The bundle names no model. The machine's own patch layer ($DSH_HOME/cordis.patch.yml, or a profile's) declares the
+# local provider routes on the `llm-pi-ai` row and lists them on the `local-models` row below; compaction, the Laya
+# endpoints and /prechat are built from that list when the profile loads.
+#
+# Local routes talk to an OpenAI-compatible server on one address: DSH_LOCAL_LLM_URL (default
+# http://127.0.0.1:8080/v1) is where the managed Laya endpoints point, and the routes name it in `baseURLEnv`.
+
+# The local routes, as data for the expressions below (the row never mounts). A user patch replaces `config`:
+#
+#   - id: local-models
+#     config:
+#       routes:
+#         - provider: my-route          # an `llm-pi-ai` provider route
+#           model: my-model             # one of its model ids
+#           summary: my-route-summary   # optional: reasoning-off twin route that writes the compaction summaries
+#           laya: true                  # optional: the model server answers POST /v1/laya/compact (DSH_LAYA=managed)
+#           prechat: true               # optional: the route accepts /prechat conversations
+#
+# Values are read as written, so they must be literals (no `!!js`).
+- insert:
+    - id: local-models
+      name: '@deepseek-ai/dsh-local-base'
+      disabled: true
+      config:
+        routes: []
+
+# Host-plane compaction, used where no agent preset composes its own (ACP, headless): summaries go to the
+# summary twin of the conversation's route, so a local server never sees an unknown route.
+- id: compaction-basic
+  config:
+    auto: true
+    thresholdRatio: 0.80
+    headroomTokens: 0
+    retainRatio: 0.16
+    maxTokens: 32768
+    compactionRetries: 1
+    maxOverflowRetries: 1
+    # Local routes with a `summary` twin summarize through it; other routes through their own model.
+    modelPolicies: !!js >-
+      ([...ctx.get('loader')?.entries() ?? []].find(entry => entry.options.id === 'local-models')?.options.config?.routes ?? [])
+        .filter(route => route.summary)
+        .map(route => ({ provider: route.provider, model: route.model, summarizationProvider: route.summary, summarizationModel: route.model }))
+
+# Laya keeps or removes whole tool outputs verbatim; size-based trimming stays off, as in the local preset.
+- id: tool-result-pruner
+  disabled: true
+
+- insert:
+    # Prepared conversations: /prechat seeds a new chat with USER: / ASSISTANT: turns written for one model, on the
+    # local routes marked `prechat`.
+    - id: prechat
+      name: '@deepseek-ai/dsh-prechat'
+      config:
+        routes: !!js >-
+          ([...ctx.get('loader')?.entries() ?? []].find(entry => entry.options.id === 'local-models')?.options.config?.routes ?? [])
+            .filter(route => route.prechat)
+            .map(route => ({ provider: route.provider, model: route.model }))
+
+    # Verbatim pruning decided by a decision service before summary compaction, at the same threshold. DSH_LAYA
+    # selects the pass: `resident` uses the service at LAYA_URL (default http://127.0.0.1:8766); `managed`
+    # additionally sends the passes of the local routes marked `laya` to their model server, which lends the decision
+    # worker the memory of its own caches (`/v1/laya/compact`). Any service failure changes nothing, so summary
+    # compaction proceeds as before. Without DSH_LAYA the row stays mounted in `projection` mode, so stored sessions
+    # with pruning rewrites still resume.
+    - id: laya-pruner
+      name: '@deepseek-ai/dsh-compaction-laya-pruner'
+      config:
+        mode: !!js "['resident', 'managed'].includes(process.env.DSH_LAYA ?? '') ? 'pass' : 'projection'"
+        url: !!js process.env.LAYA_URL || 'http://127.0.0.1:8766'
+        modelEndpoints: !!js >-
+          process.env.DSH_LAYA === 'managed'
+            ? ([...ctx.get('loader')?.entries() ?? []].find(entry => entry.options.id === 'local-models')?.options.config?.routes ?? [])
+                .filter(route => route.laya)
+                .map(route => ({ provider: route.provider, model: route.model, url: `${process.env.DSH_LOCAL_LLM_URL || 'http://127.0.0.1:8080/v1'}/laya/compact` }))
+            : []
+        thresholdRatio: 0.80
+        targetRatio: 0.25
+        minBudgetRatio: 0.25
+        timeoutMs: 120000
+
+    # Web search providers beside the DeepSeek ones; select one with `searchProvider` on the `web` row.
+    - id: web-search-exa
+      name: '@deepseek-ai/dsh-web-search-exa'
+    - id: web-search-tavily
+      name: '@deepseek-ai/dsh-web-search-tavily'

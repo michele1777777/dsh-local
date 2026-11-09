@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Panneau d'élagage Laya",
+    "description": "Affiche chaque passe d'élagage Laya dans la conversation avec ses phases, ses totaux et les sorties conservées ou supprimées."
+  }
+}

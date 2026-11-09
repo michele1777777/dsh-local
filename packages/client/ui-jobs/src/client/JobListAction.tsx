@@ -62,14 +62,6 @@ function isLive(job: JobView): boolean {
   return job.status === 'running' || job.status === 'stopping'
 }
 
-/**
- * Whether the row offers an output panel: every live job (its output may
- * still arrive) and a settled one that left retained output behind.
- */
-function isObservable(job: JobView): boolean {
-  return isLive(job) || job.output.total > 0
-}
-
 /** The one-line qualifier beside the status: live progress while running, the terminal reason once settled. */
 function jobDetail(job: JobView): string | undefined {
   return job.progress ?? job.detail
@@ -191,7 +183,6 @@ function JobItem({ job, view, expanded, now, onToggle, kill, t }: {
   const live = isLive(job)
   const status = statusLabel(job.status, t)
   const detail = jobDetail(job)
-  const observable = isObservable(job)
   const labels = useMemo(() => terminalLabels(t), [t])
   const elapsed = live ? now - job.startedAt : (job.finishedAt ?? job.startedAt) - job.startedAt
   const duration = formatDuration(elapsed, t)
@@ -230,13 +221,9 @@ function JobItem({ job, view, expanded, now, onToggle, kill, t }: {
         <span className={css.label} title={job.label}>{job.label}</span>
         <span className={css.status} title={detail ?? status}>{detail ?? status}</span>
         {durationCell}
-        {observable
-          ? (
-            <span className={css.chevronBox}>
-              <IconChevronDownOutlineRegular size={12} className={expanded ? `${css.chevron} ${css.chevronOpen}` : css.chevron} />
-            </span>
-          )
-          : null}
+        <span className={css.chevronBox}>
+          <IconChevronDownOutlineRegular size={12} className={expanded ? `${css.chevron} ${css.chevronOpen}` : css.chevron} />
+        </span>
       </>
     )
   const killTitle = kill === undefined
@@ -247,23 +234,15 @@ function JobItem({ job, view, expanded, now, onToggle, kill, t }: {
   return (
     <li className={css.item}>
       <div className={live ? `${css.rowLine} ${css.rowLineLive}` : css.rowLine}>
-        {observable
-          ? (
-            <button
-              type="button"
-              className={live ? css.row : `${css.row} ${css.rowSettled}`}
-              aria-expanded={expanded}
-              aria-label={t(expanded ? 'row.collapseAria' : 'row.expandAria', { label: job.label })}
-              onClick={onToggle}
-            >
-              {body}
-            </button>
-          )
-          : (
-            <span className={`${css.row} ${css.rowSettled} ${css.rowStatic}`}>
-              {body}
-            </span>
-          )}
+        <button
+          type="button"
+          className={live ? css.row : `${css.row} ${css.rowSettled}`}
+          aria-expanded={expanded}
+          aria-label={t(expanded ? 'row.collapseAria' : 'row.expandAria', { label: job.label })}
+          onClick={onToggle}
+        >
+          {body}
+        </button>
         {kill !== undefined
           ? (
             <button
@@ -438,7 +417,7 @@ export function JobListAction({ sessionId, useJobs, watchRows, observe, killJob,
   const expandedRow = open && expandedKey !== undefined
     ? rows.find(job => String(job.id) === expandedKey)
     : undefined
-  const activeJob = expandedRow !== undefined && isObservable(expandedRow) ? expandedRow.id : undefined
+  const activeJob = expandedRow?.id
   useEffect(() => {
     if (activeJob === undefined) return
     return observe(sessionId, activeJob)
@@ -546,7 +525,7 @@ export function JobListAction({ sessionId, useJobs, watchRows, observe, killJob,
     <JobItem
       key={String(job.id)}
       job={job}
-      view={isObservable(job) ? observedViews[String(job.id)] : undefined}
+      view={observedViews[String(job.id)]}
       expanded={expandedKey === String(job.id)}
       now={now}
       onToggle={() => {

@@ -80,6 +80,7 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
 | `displayName` | provider name | Label shown by selector surfaces |
 | `api` | catalog protocol | Wire protocol; only needed for routes the catalog does not supply |
 | `baseURL` | catalog endpoint | Endpoint of every model on the route |
+| `baseURLEnv` | none | Launch-environment variable whose non-empty value replaces `baseURL` when the profiles resolve, so a shipped route can reach a per-machine server address |
 | `models` | installed catalog | Replaces the route's catalog wholesale; each entry defaults from the installed model |
 | `modelOverrides` | none | Reshapes individual installed-catalog models without replacing the rest |
 | `compat` | catalog detection | Wire-compatibility switches for unrecognized endpoints |
@@ -91,6 +92,7 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
 | `maxRequestImages` | `50` | Retained request-image count bound; a request whose retained images exceed it fails with `IMAGE_OFFLOAD_REQUIRED`. The default follows Azure OpenAI's 50-image limit; raise it on routes whose provider accepts more images |
 | `imageOffloadCountQuantum` | `10`, capped at `maxRequestImages` | Oldest images offloaded per count overflow |
 | `retryPolicy` | normal, 5 retries | Provider-owned retry policy executed by `dsh-llm-retry` |
+| `sessionCache` | off | Opt-in for OpenAI-completions routes whose server keeps a prompt cache per Session: requests send the Session-derived `prompt_cache_key`, and `preserve_context: true` while an `llm/preserve-context` listener asks for it. Leave it off for servers that reject these fields |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-llm-pi-ai) is the exhaustive source for every accepted field and its JSDoc.
 
@@ -228,7 +230,7 @@ Provider tokenization governs exact input. Retained images add the stable attach
 
 #### KV Cache effect
 
-Later system messages supplied to the adapter stay out of the initial prompt, preserving the preceding request prefix. This does not change the agent loop’s prompt admission, which consolidates updates on routes without native system-update support. Conversion preserves logical request order, while image handles and offload placeholders add model-visible text. A changed execution-world path rewrites a historical handle and can prevent reuse from that image even when attachment identity and request bytes stay stable. Changing adapter instance, provider, model, or another upstream token has the same suffix effect. An offload decision turns an earlier image into placeholder text, so reuse ends at that message; the omission never reverts, so the prefix stays stable until the next decision. A count overflow offloads `imageOffloadCountQuantum` images at once, so a saturated route ends reuse at the oldest retained image once per that many new images.
+Later system messages supplied to the adapter stay out of the initial prompt, preserving the preceding request prefix. This does not change the agent loop’s prompt admission, which consolidates updates on routes without native system-update support. Conversion preserves logical request order, while image handles and offload placeholders add model-visible text. A changed execution-world path rewrites a historical handle and can prevent reuse from that image even when attachment identity and request bytes stay stable. Changing adapter instance, provider, model, or another upstream token has the same suffix effect. An offload decision turns an earlier image into placeholder text, so reuse ends at that message; the omission never reverts, so the prefix stays stable until the next decision. A count overflow offloads `imageOffloadCountQuantum` images at once, so a saturated route ends reuse at the oldest retained image once per that many new images. On OpenAI-completions routes whose provider sets `sessionCache: true`, each request carries a Session-derived `prompt_cache_key`, and a positive `llm/preserve-context` policy adds `preserve_context: true` outside model input. Without that policy, `preserve_context` is omitted; routes without `sessionCache` send neither field. Auxiliary calls such as `auto-review` use a separate key suffixed with their purpose. These fields request backend cache retention; they do not guarantee a cache hit or change the prompt.
 
 ### Provider response
 

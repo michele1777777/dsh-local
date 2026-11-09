@@ -1,0 +1,351 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { row, span, wrapRow, wrapProse, fitRow, textOfRow, widthOf } from '../src/rich-text.ts'
+import { parseMouse } from '../src/mouse.ts'
+import { markdownRows, createStreamingMarkdown, createStreamingProse } from '../src/markdown-layout.ts'
+import { itemRows, createDocumentRenderer, searchRows } from '../src/document.ts'
+import { contextReading, speedReading, sessionIndicators } from '../src/metrics.ts'
+import { headerRow, statusRow, indicatorRow, composerRows, inspectorRows, approvalDetails, approvalControls, panelLayout, pickerLayout, filterPicker, fitScreen } from '../src/screen.ts'
+import { reviewDiff } from '../src/diff.ts'
+import { anchorAt, topOf, scrollBy } from '../src/viewport.ts'
+import { emptyUndo, remember, undo, redo } from '../src/editor-history.ts'
+import { moveVisual } from '../src/layout.ts'
+import { mergeCommands } from '../src/commands.ts'
+import { palette } from '../src/theme.ts'
+import { fixture, tool, diffTool, conversation, approval } from './fixtures.mjs'
+const text = rows => rows.map(textOfRow).join('\n')
+const opts = (width = 80, expanded = true) => ({ width, expanded, overrides: {} })
+const bounded = (rows, width) => rows.forEach((value, index) => assert.ok(widthOf(textOfRow(value)) <= width, `row ${index}: ${widthOf(textOfRow(value))}>${width}: ${textOfRow(value)}`))
+
+test('wrapping retains graphemes, text and styles without terminal escapes', () => {
+  const input = 'Café 👩🏽‍💻 東京 🏳️‍🌈 '+ 'x'.repeat(180)
+  for (const width of [2, 8, 29, 80]) { const rows = wrapRow(row(span(input, 'accent')), width); bounded(rows, width); assert.equal(rows.map(textOfRow).join(''), input); assert.equal(rows[0].spans[0].tone, 'accent') }
+  assert.doesNotMatch(text(wrapRow(row('\x1b]52;c;bad\x07\x1b[2Jhello\u202etxt'), 50)), /\x1b|\x07|\u202e/u)
+  assert.equal(textOfRow(fitRow(row('abcdef'), 0)), '')
+})
+test('Markdown preserves complete code, links and tables at narrow and wide sizes', () => {
+  const source = '# Header\n- [x] Completed\n> quote\n\n| Name | Value |\n| --- | --- |\n| alpha | beta gamma |\n\n```ts\nconst variable = "unique-marker"\nreturn variable\n```\n[reference](https://example.test)'
+  for (const width of [29, 40, 60, 100]) {
+    const rows = markdownRows(source, width); bounded(rows, width)
+    assert.ok(text(rows).includes('alpha')); assert.ok(text(rows).includes('beta gamma')); assert.ok(text(rows).includes('reference'))
+    assert.ok(text(rows).replace(/\s*│\n\s*│ /g, '').includes('unique-marker'))
+  }
+})
+test('table cells beyond a short header remain readable', () => {
+  const rows = markdownRows('| A | B |\n| --- | --- |\n| one | two | retained-extra-cell |', 80)
+  assert.ok(text(rows).includes('retained-extra-cell'))
+})
+test('reasoning is masked behind a Thinking toggle in streaming and settled rows, and revealed on demand', () => {
+  for (const settled of [false, true]) {
+    const item = { kind: 'assistant', id: 'a', reasoning: 'provider reasoning', text: 'answer', settled }
+    const masked = itemRows(item, opts())
+    assert.ok(text(masked).includes('Thought')); assert.ok(!text(masked).includes('provider reasoning')); assert.ok(text(masked).includes('answer'))
+    assert.ok(masked.some(value => value.spans.some(part => part.action?.kind === 'toggle-reasoning')))
+    const revealed = itemRows(item, { ...opts(), overrides: { 'reasoning:a': true } })
+    assert.ok(text(revealed).includes('provider reasoning'))
+  }
+})
+test('read cards use the tool-provided line numbers and text, not object coercion', () => {
+  const item = conversation().find(value => value.id === 'tool-read')
+  const result = text(itemRows(item, opts()))
+  assert.match(result, /41 │ export function/); assert.doesNotMatch(result, /\[object Object\]/)
+})
+test('tool folding is individual and does not change the stored result', () => {
+  const item = tool({ result: { card: 'terminal', output: Array.from({length:80}, (_,i) => `OUTPUT_${i}`).join('\n'), exitCode: 0 } })
+  const before = JSON.stringify(item)
+  const collapsed = itemRows(item, opts(80, false)), expanded = text(itemRows(item, { ...opts(80, false), overrides: { [item.id]: true } }))
+  // Collapsed, the call is one row after the blank one, naming the last output line.
+  assert.equal(collapsed.length, 2); assert.match(text(collapsed), /OUTPUT_79/); assert.ok(!text(collapsed).includes('OUTPUT_0'))
+  assert.ok(expanded.includes('OUTPUT_0')); assert.equal(JSON.stringify(item), before)
+})
+test('all tool result variants have bounded layouts and safe raw inspectors', () => {
+  const variants = [tool(), diffTool(), conversation()[2], tool({result:{card:'search',shape:'paths',paths:['/first','/last'],total:2,truncated:false}}), tool({result:{card:'web',kind:'fetch',url:'https://example.test',statusCode:200}}), tool({result:{card:'generic',content:[{type:'text',text:'generic detail'}]}}), tool({isError:true,resultText:'error '.repeat(80)}), tool({cancelled:true})]
+  for (const item of variants) for (const width of [29,40,80,120]) { bounded(itemRows(item,opts(width)),width); bounded(itemRows(item,{...opts(width),raw:true}),width) }
+})
+test('numbered hunks handle inserts, deletes and multi-hunk modifications', () => {
+  const created = reviewDiff(null, 'a\nb\n'); assert.equal(created.added,2); assert.equal(created.removed,0); assert.equal(created.lines[0].hunk,'@@ -0,0 +1,2 @@')
+  const deleted = reviewDiff('a\nb\n',''); assert.equal(deleted.removed,2); assert.equal(deleted.added,0)
+  const old = Array.from({length:60},(_,i)=>`line${i}`), next=[...old]; next[3]='changed-one';next[50]='changed-two'
+  const result=reviewDiff(old.join('\n'),next.join('\n'));assert.equal(result.added,2);assert.equal(result.removed,2);assert.equal(result.lines.filter(line=>line.hunk).length,2)
+})
+test('large diffs retain every changed line without quadratic allocation', () => {
+  const before=Array.from({length:1000},(_,i)=>`before-${i}`).join('\n'), after=Array.from({length:1000},(_,i)=>`after-${i}`).join('\n')
+  const result=reviewDiff(before,after);assert.equal(result.coarse,true);assert.equal(result.added,1000);assert.equal(result.removed,1000);assert.ok(result.lines.some(line=>line.text==='after-999'))
+})
+test('stable renderer cache reuses unchanged layouts and invalidates changed content', () => {
+  const renderer=createDocumentRenderer(), item=tool();const first=renderer.render([item],opts()), same=renderer.render([{...item}],opts())
+  assert.equal(first[0],same[0]); const changed=renderer.render([{...item,isError:true}],opts());assert.notEqual(changed[0],first[0])
+})
+test('search includes unfolded details and reasoning', () => {
+  const renderer=createDocumentRenderer();const rows=renderer.render(conversation(),{...opts(),overrides:{'reasoning:assistant-1':true}})
+  assert.ok(searchRows(rows,'validation').length>0);assert.ok(searchRows(rows,'expiresAt').length>0);assert.equal(searchRows(rows,'absentstring').length,0)
+})
+test('context is approximate, unknown stays unknown, no guessed prefill throughput', () => {
+  assert.equal(contextReading({}).label,'ctx —');assert.equal(contextReading({contextPressure:{contextWindow:100}}).used,undefined)
+  assert.equal(contextReading({contextPressure:{pressureTokens:10,projectedTokens:20,contextWindow:100}}).ratio,.2)
+  assert.equal(speedReading({}).decode,undefined);assert.equal(speedReading({sessionStats:{decodeTokens:5,decodeMs:0}}).decode,undefined)
+  assert.deepEqual(speedReading({sessionStats:{decodeTokens:120,decodeMs:2000,ttftMs:1500,ttftSteps:3}}),{decode:60,ttftMs:500})
+  assert.deepEqual(speedReading({sessionStats:{decodeTokens:Infinity,decodeMs:5,ttftMs:-1,ttftSteps:1}}),{})
+  assert.equal('prefill' in speedReading(fixture().projections),false)
+})
+test('resumed disarmed goals never appear to be running', () => {
+  const state=fixture({goalActivation:'disarmed',projections:{goal:{goal:{objective:'Build auth',phase:'active',maxGoalRounds:20},roundsStarted:3},plan:{active:false,pending:true}}})
+  assert.equal(sessionIndicators(state)[0].detail,'paused · /goal resume');assert.match(sessionIndicators(state)[1].label,/entering plan/)
+})
+test('permission inspector describes never as rejection, not bypass', () => {
+  assert.match(text(inspectorRows(fixture({approvalPolicy:'never'}),'permissions',[],80)),/does not mean automatic\s+approval/)
+  assert.doesNotMatch(text(approvalControls(80,false,1)),/Allow for session/)
+})
+test('long permission details are all reachable with pinned actions', () => {
+  const details=approvalDetails({...approval(),detail:Array.from({length:200},(_,i)=>`line-${i}`).join('\n')},40)
+  const frame=panelLayout('Approval',details,approvalControls(40,false,1),40,12,1e6)
+  assert.match(text(frame.rows),/line-199/);assert.match(text(frame.rows),/Allow once/);assert.equal(frame.rows.length,12)
+})
+test('viewport anchors survive earlier row growth; tail follows only when asked', () => {
+  const rows=[...Array.from({length:5},()=>({...row('first'),itemId:'one'})),...Array.from({length:10},()=>({...row('second'),itemId:'two'}))]
+  const anchor=anchorAt(rows,7),grown=[...Array.from({length:20},()=>({...row('more'),itemId:'one'})),...rows]
+  assert.equal(topOf(grown,3,anchor),27);assert.equal(topOf(grown,3,null),32)
+  assert.equal(scrollBy(rows,3,anchor,100),null);assert.equal(topOf(rows,3,scrollBy(rows,3,null,-3)),9)
+})
+test('composer history undo and redo preserve pasted text and cursor', () => {
+  const a={text:'a',cursor:1},b={text:'a\n東京',cursor:4};const h=remember(emptyUndo(),a,b);const undone=undo(h,b)
+  assert.deepEqual(undone.editor,a);assert.deepEqual(redo(undone.history,a).editor,b)
+  assert.ok(moveVisual({text:'123456789012345',cursor:3},1,6).cursor>3)
+})
+test('semantic monochrome theme does not emit colour choices', () => {assert.ok(Object.values(palette('mono')).every(value=>value===undefined))})
+for(const width of [29,40,60,80,120]) test(`header, composer, panels and footer fit ${width} cells`,()=>{
+  const state=fixture();bounded([headerRow(state,width),statusRow(state,width,0,5000)],width)
+  bounded(composerRows({text:'hello 東京\n\tconst token = 123',cursor:9},width,5,'prompt'),width)
+  for(const panel of ['help','context','permissions','tasks'])bounded(inspectorRows(state,panel,mergeCommands([]),width),width)
+  const picker={kind:'models',title:'Models',rows:[{id:'m',label:'A very long model '.repeat(10),detail:'detail '.repeat(20),command:'/model p/m',current:true}]}
+  bounded(pickerLayout(picker,filterPicker(picker,''),{text:'',cursor:0},0,width,12),width)
+  assert.equal(fitScreen([],width,24).length,24)
+})
+
+test('a streamed message lays out exactly like a complete one, at every prefix', () => {
+  const source = '# Heading\n\nProse that wraps across the width and keeps going for a while.\n\n- one\n- two\n\n```ts\nconst value = compute(input)\n\nreturn value\n```\n\n| A | B |\n| --- | --- |\n| one | two |\n\nClosing words.'
+  for (const width of [29, 80]) {
+    const streaming = createStreamingMarkdown()
+    for (let at = 1; at <= source.length; at += 3) {
+      const grown = source.slice(0, at)
+      assert.deepEqual(streaming.rows('a', grown, width), markdownRows(grown, width), `width ${width} at ${at}`)
+    }
+    const prose = createStreamingProse('reasoning')
+    const thought = 'First thought.\nSecond thought that is long enough to wrap somewhere.\n\nThird.'
+    for (let at = 1; at <= thought.length; at += 2) {
+      assert.deepEqual(prose.rows('a', thought.slice(0, at), width), wrapProse(row(span(thought.slice(0, at), 'reasoning')), width))
+    }
+    // A different item, a narrower width and a rewrite all fall back cleanly.
+    assert.deepEqual(streaming.rows('b', source, width), markdownRows(source, width))
+    assert.deepEqual(streaming.rows('b', source, width - 4), markdownRows(source, width - 4))
+    assert.deepEqual(streaming.rows('b', 'rewritten', width), markdownRows('rewritten', width))
+  }
+})
+test('a document renderer reuses rows without changing them', () => {
+  const renderer = createDocumentRenderer()
+  const items = [...conversation(), { kind: 'assistant', id: 'live', reasoning: 'thinking\nout loud', text: '', settled: false }]
+  const live = items.at(-1)
+  for (const piece of ['## Answer', '\n\nBody text.', '\n\n```ts\nconst x = 1\n```', '\n\nDone.']) {
+    live.text += piece
+    assert.deepEqual(renderer.render(items, opts(80, false)), createDocumentRenderer().render(items, opts(80, false)))
+  }
+})
+test('mouse reports are classified, never typed', () => {
+  assert.deepEqual(parseMouse('[<64;10;5M'), { kind: 'wheel', direction: -1, ctrl: false, shift: false, x: 9, y: 4 })
+  assert.deepEqual(parseMouse('\x1b[<65;10;5M'), { kind: 'wheel', direction: 1, ctrl: false, shift: false, x: 9, y: 4 })
+  assert.deepEqual(parseMouse('[<80;10;5M'), { kind: 'wheel', direction: -1, ctrl: true, shift: false, x: 9, y: 4 })
+  for (const other of ['[<0;10;5M', '[<0;10;5m', '[<66;10;5M', '[M']) assert.ok(parseMouse(other) !== undefined && parseMouse(other).kind !== 'wheel')
+  for (const key of ['a', '', '[A', '[200~', '\x1b[3~']) assert.equal(parseMouse(key), undefined)
+})
+
+const { composerOffsetAt } = await import('../src/screen.ts')
+test('a click in the composer maps to the draft offset under it, including wrapped lines', () => {
+  const editor = { text: 'fix the phrase\nsecond line', cursor: 0 }
+  // Row 0 is the rule; text starts after the two-cell prompt marker.
+  assert.equal(composerOffsetAt(editor, 40, 4, undefined, 1, 2), 0)
+  assert.equal(composerOffsetAt(editor, 40, 4, undefined, 1, 6), 4)
+  assert.equal(composerOffsetAt(editor, 40, 4, undefined, 1, 0), 0)
+  assert.equal(composerOffsetAt(editor, 40, 4, undefined, 1, 39), 14)
+  assert.equal(composerOffsetAt(editor, 40, 4, undefined, 2, 3), 16)
+  // Rows above the text or below the last line clamp to its ends.
+  assert.equal(composerOffsetAt(editor, 40, 4, undefined, 0, 9), 0)
+  assert.equal(composerOffsetAt(editor, 40, 4, undefined, 9, 9), editor.text.length)
+  const wrapped = { text: 'abcdefghij', cursor: 0 }
+  assert.equal(composerOffsetAt(wrapped, 8, 4, undefined, 2, 3), 6)
+})
+test('the composer paints a draft selection inverse, separately from the cursor', () => {
+  const rows = composerRows({ text: 'fix the phrase', cursor: 7, anchor: 4 }, 40, 4, 'prompt')
+  const inverse = rows[1].spans.filter(part => part.inverse === true).map(part => part.text).join('')
+  assert.equal(inverse, 'the ')
+})
+
+const { deepseekLogo } = await import('../src/screen.ts')
+
+test('slash commands in the conversation use their own light-blue tone', () => {
+  const rows = itemRows({ kind: 'command', id: 'c1', name: 'goal', args: ' build Tetris', settled: true }, { width: 60, expanded: false, overrides: {} })
+  const command = rows.flatMap(value => value.spans).filter(part => part.text.includes('/goal'))
+  assert.ok(command.length > 0 && command.every(part => part.tone === 'command'))
+  assert.equal(palette('dark').command, '#5fafff')
+  assert.notEqual(palette('dark').command, palette('dark').accent)
+  assert.equal(palette('mono').command, undefined)
+})
+test('the DeepSeek whale is drawn in separate braille dots, still at frame 0', () => {
+  const logo = deepseekLogo()
+  assert.equal(logo.length, 10)
+  const widths = logo.map(value => widthOf(textOfRow(value)))
+  assert.ok(widths.every(width => width === widths[0] && width <= 28))
+  const text = logo.map(textOfRow).join('')
+  assert.doesNotMatch(text, /[▀▄█⣿]/u)
+  assert.match(text, /[\u2801-\u28fe]/u)
+  const tones = new Set(logo.flatMap(value => value.spans).filter(part => part.text.trim() !== '').map(part => part.tone))
+  assert.ok(tones.has('brand') && tones.has('command') && tones.has('muted'))
+  assert.ok(!tones.has('text'))
+  assert.deepEqual(deepseekLogo(0).map(textOfRow), logo.map(textOfRow))
+})
+test('the whale animates: frames differ, keep their size, and the spout and sweep appear', () => {
+  const frames = Array.from({ length: 60 }, (_, tick) => deepseekLogo(tick).map(textOfRow))
+  assert.ok(new Set(frames.map(frame => frame.join('\n'))).size > 30)
+  assert.ok(frames.every(frame => frame.length === 10 && frame.every(line => widthOf(line) === widthOf(frames[0][0]))))
+  const spout = deepseekLogo(10).slice(0, 4).flatMap(value => value.spans).filter(part => part.tone === 'command' && part.text.trim() !== '')
+  assert.ok(spout.length > 0)
+  const sweep = Array.from({ length: 90 }, (_, tick) => deepseekLogo(tick)).some(frame => frame.some(value => value.spans.some(part => part.tone === 'text' && part.text.trim() !== '')))
+  assert.ok(sweep)
+})
+test('a tool heading colours only its category tag; the title and arguments stay plain, with no filled badge', () => {
+  const rows = itemRows(tool(), opts(80, true))
+  const heading = rows.find(value => textOfRow(value).includes('CMD'))
+  assert.ok(heading !== undefined)
+  assert.ok(heading.spans.every(part => part.inverse !== true))
+  assert.equal(heading.spans.find(part => part.text === 'CMD')?.tone, 'toolBash')
+  assert.ok(heading.spans.filter(part => part.text.includes('pnpm test --filter auth')).every(part => part.tone === 'text'))
+  const command = itemRows({ kind: 'command', id: 'c', name: 'goal', args: 'ship it', settled: true }, opts())
+  assert.equal(command.flatMap(value => value.spans).find(part => part.text.includes('ship it'))?.tone, 'text')
+})
+test('user-invocable skills join the slash palette, and a command of the same name wins', () => {
+  const merged = mergeCommands([{ name: 'plan', description: 'plan with the preset' }], [{ name: 'playwright-cli', description: 'Automate  a\nbrowser' }, { name: 'plan', description: 'skill shadowed by the command' }])
+  assert.deepEqual(merged.find(entry => entry.name === 'playwright-cli'), { name: 'playwright-cli', description: 'Automate a browser', hint: 'task', origin: 'skill' })
+  assert.equal(merged.find(entry => entry.name === 'plan')?.origin, 'registry')
+})
+
+const { thinkingWhale, layaPixels } = await import('../src/screen.ts')
+const { thinkingSea, SEA_ROWS, SEA_MIN_CELLS } = await import('../src/sea.ts')
+const { titleSpinner, terminalTitle } = await import('../src/terminal-signals.ts')
+test('live reasoning keeps its whale inside the frame and settled reasoning keeps its duration', () => {
+  const renderer = createDocumentRenderer()
+  const old = {kind:'assistant', id:'old', reasoning:'earlier', text:'', settled:true, reasoningStartedAt:1000, reasoningEndedAt:4500}
+  const live = {kind:'assistant', id:'new', reasoning:'first\nsecond', text:'', settled:false, reasoningStartedAt:10000}
+  const options = {...opts(100), tick:8, now:17000}
+  renderer.render([old],options)
+  const rows = renderer.render([old,live],options)
+  // A settled thought folds to one row, in the tool-row columns, with its duration on the right.
+  assert.deepEqual(rows.filter(r=>r.itemId==='old').map(textOfRow), ['', `  ◦ Thought · 1 line${' '.repeat(58)}3.5s`])
+  assert.doesNotMatch(text(rows.filter(r=>r.itemId==='old')), /[\u2801-\u28ff]/u)
+  const label=rows.find(r=>textOfRow(r).includes('Thinking…'))
+  assert.match(textOfRow(label), /^ {2}.. › Thinking… · 7s · 2 lines/u)
+  // A live box is open water: waving top and bottom edges that run across the corners, and no sides.
+  assert.match(text(rows.filter(r=>r.itemId==='new')), /[⎻⎼]/u)
+  assert.doesNotMatch(text(rows.filter(r=>r.itemId==='new')), /[╭╮╰╯│]/u)
+  assert.equal(rows.filter(r=>r.itemId==='new' && !r.heading && !textOfRow(r).includes('Show details') && textOfRow(r).trim()!=='').length>0,true)
+  assert.ok(rows.filter(r=>r.itemId==='new').some(r=>r.spans.some(p=>p.tone==='brand' && /[\u2801-\u28ff]/u.test(p.text))))
+  assert.match(text(renderer.render([old,live],{...options,now:18000})), /Thinking… · 8s/)
+  live.reasoningEndedAt=18500;live.settled=true
+  const done=renderer.render([old,live],{...options,now:30000})
+  // Settled, the live box becomes one row joined to the thought before it, without the waves or the sea.
+  assert.deepEqual(done.filter(r=>r.itemId==='new').map(textOfRow), [`  ◦ Thought · 2 lines${' '.repeat(57)}8.5s`])
+  assert.doesNotMatch(text(done), /[⎺⎻⎼⎽⎸⎹╭╮╰╯\u2801-\u28ff]/u)
+  assert.deepEqual(renderer.render([old,live],{...options,now:60000,tick:20}),done)
+  // Opened, it is the straight, closed card with the reasoning inside.
+  const open=renderer.render([old,live],{...options,now:30000,overrides:{'reasoning:new':true}})
+  assert.match(text(open.filter(r=>r.itemId==='new')), /╭─ ▾ Thought · 8s · 2 lines ─+╮[\s\S]*first[\s\S]*second/u)
+  // Every cell of the heading after the margin toggles the reasoning.
+  assert.ok(done.filter(r=>r.itemId==='new' && r.heading).every(r=>r.spans.slice(1).every(p=>p.action?.kind==='toggle-reasoning')))
+})
+test('the thinking sea keeps its footprint while the whale floats, swims, breaches, dives out of sight and splashes', () => {
+  const cells=60, frames=Array.from({length:240},(_,tick)=>thinkingSea(tick,cells))
+  assert.ok(frames.every(rows=>rows.length===SEA_ROWS && rows.every(r=>widthOf(textOfRow(r))===cells)))
+  assert.ok(thinkingSea(0,SEA_MIN_CELLS-6).every(r=>widthOf(textOfRow(r))===SEA_MIN_CELLS))
+  const braille=/[\u2801-\u28ff]/u
+  const tones=rows=>new Set(rows.flatMap(r=>r.spans.filter(p=>braille.test(p.text)).map(p=>p.tone)))
+  // Floating and swimming, the whale shows its blue body and its white belly band.
+  assert.ok(frames.slice(1,40).every(rows=>tones(rows).has('brand') && tones(rows).has('text')))
+  // Under water the whale disappears completely.
+  assert.ok(frames.some((rows,tick)=>tick>0 && !tones(rows).has('brand')))
+  // Landing throws light-blue water round the body.
+  assert.ok(frames.some(rows=>rows.filter(r=>r.spans.some(p=>p.tone==='command' && braille.test(p.text))).length>=4))
+  // Light glints on the back are horizontal: runs of at least two cells, never a single upright cell.
+  // While swimming, past the spout, every light-blue mark is a glint on the back.
+  const glints=frames.slice(20,60).flatMap(rows=>rows.flatMap(r=>r.spans.filter(p=>p.tone==='command' && braille.test(p.text))))
+  assert.ok(glints.length>0 && glints.every(p=>[...p.text].length>=2), glints.map(p=>p.text).join(' '))
+  // Swimming is smooth: the body's centre never jumps between frames.
+  const BITS=[[0x01,0,0],[0x02,0,1],[0x04,0,2],[0x08,1,0],[0x10,1,1],[0x20,1,2],[0x40,0,3],[0x80,1,3]]
+  const centre=rows=>{let x=0,y=0,n=0;rows.forEach((r,ry)=>{let column=0;for(const p of r.spans)for(const ch of p.text){if(p.tone==='brand'){const bits=ch.codePointAt(0)-0x2800;for(const [bit,dx,dy] of BITS)if(bits&bit){x+=column*2+dx;y+=ry*4+dy;n++}}column++}});return {x:x/n,y:y/n,n}}
+  for(let tick=2;tick<40;tick++){const a=centre(frames[tick-1]),b=centre(frames[tick]);assert.ok(Math.abs(b.y-a.y)<1.2 && Math.abs(b.x-a.x)<3,`tick ${tick}: ${a.x},${a.y} -> ${b.x},${b.y}`)}
+  assert.notEqual(text(thinkingSea(0,cells)),text(thinkingSea(5,cells)))
+})
+test('the terminal title carries a turning dot spinner only while a turn runs', () => {
+  const running={sessionId:'one',title:'Auth',running:true}
+  assert.equal(new Set(Array.from({length:8},(_,frame)=>titleSpinner(frame))).size,8)
+  assert.equal(titleSpinner(8),titleSpinner(0))
+  assert.match(terminalTitle(running,3),/\]2;[⣾⣽⣻⢿⡿⣟⣯⣷] DSH · Auth · working/u)
+  assert.match(terminalTitle(running),/DSH · Auth · working/u)
+  assert.match(terminalTitle({...running,running:false},3),/DSH · Auth · ready/u)
+  assert.match(terminalTitle({...running,pendingId:'q'},3),/DSH · Auth · attention/u)
+})
+test('reasoning decorations wrap without losing controls and keep a fixed frame size', () => {
+  const item={kind:'assistant',id:'live',reasoning:'reason',text:'',settled:false,reasoningStartedAt:0}
+  for(const width of [1,28,40,80,120]) {
+    const frames=[0,6,12,24].map(tick=>itemRows(item,{...opts(width),tick,now:9000}))
+    frames.forEach(rows=>bounded(rows,width))
+    assert.ok(frames.every(rows=>rows.length===frames[0].length))
+    if(width>=28) assert.match(text(frames[0]).replace(/\n/g,''),/Show details/)
+  }
+  assert.equal(thinkingWhale(0).length,4)
+  assert.ok([0,5,9,30].every(tick=>thinkingWhale(tick).every(r=>widthOf(textOfRow(r))===14)))
+  assert.notEqual(text(thinkingWhale(0)),text(thinkingWhale(8)))
+  // A braille cell has one colour: the whale carries a white belly, and the sea row stays grey.
+  assert.ok(thinkingWhale(0).some(r=>r.spans.some(p=>p.tone==='text' && /[\u2801-\u28ff]/u.test(p.text))))
+  assert.ok([0,5,9,30].every(tick=>thinkingWhale(tick)[3].spans.every(p=>p.tone==='muted' || !/[\u2801-\u28ff]/u.test(p.text))))
+  assert.equal(widthOf(textOfRow(row(...layaPixels(0)))),12)
+  assert.notDeepEqual(layaPixels(0),layaPixels(2))
+})
+test('the status row freezes Laya motion and shows the work timer only while a turn runs', () => {
+  const state=fixture({motion:false,status:'running'})
+  state.transcript.layaPruning=true;state.transcript.workStartedAt=1000
+  const first=statusRow(state,140,0,62000),next=statusRow(state,140,8,62000)
+  assert.deepEqual(first,next)
+  assert.match(textOfRow(first),/pruning context  ·  deepseek\/reasoner high  ·  1m 1s /)
+  // Decode speed and TTFT stay in /context.
+  assert.doesNotMatch(textOfRow(first),/decode|TTFT|tok\/s/)
+  state.status='idle';state.transcript.workCompletedAt=63000
+  assert.doesNotMatch(textOfRow(statusRow(state,100,20,100000)),/1m/)
+})
+
+test('disclosure frames keep both edges on one row and expose exact tool fields', () => {
+  const item = tool({call:{card:'terminal',title:'echo exact-command',description:'Check the shell',cwd:'/work'},args:{command:'echo exact-command',description:'Check the shell',timeout:10}})
+  for (const width of [8, 29, 39, 79, 120]) for (const expanded of [false,true]) {
+    const rows=itemRows(item,{width,expanded,overrides:{}})
+    bounded(rows,width)
+    assert.doesNotMatch(text(rows), /Arguments|Directory|"command"|"description"/)
+    if (!expanded) {
+      // Collapsed, the call is one clickable row without borders.
+      assert.equal(rows.length,2);assert.doesNotMatch(text(rows),/[╭╮╰╯│]/u)
+      assert.ok(rows[1].spans.every(p=>p.action?.kind==='inspect-item'&&p.action.itemId===item.id))
+      continue
+    }
+    const top=rows.find(r=>textOfRow(r).trimStart().startsWith('╭'))
+    assert.ok(textOfRow(top).endsWith('╮'))
+    assert.equal(widthOf(textOfRow(top)),width)
+    const bottom=rows.at(-1)
+    assert.ok(textOfRow(bottom).endsWith('╯'))
+    assert.equal(widthOf(textOfRow(bottom)),width)
+    for (const edge of [top,bottom]) assert.ok(edge.spans.filter(p=>p.text.trim()!=='').every(p=>p.action?.kind==='inspect-item'&&p.action.itemId===item.id))
+    if(width===79)for(const value of ['Description','Check the shell','Command','echo exact-command','Result']) assert.ok(text(rows).includes(value),value)
+  }
+})
+test('slash command disclosure reveals all output and arguments without changing history', () => {
+  const item={kind:'command',id:'command-view',name:'example',args:'the original arguments',settled:true,result:{kind:'success',text:Array.from({length:20},(_,i)=>`result-${i}`).join('\n')}}
+  const original=JSON.stringify(item)
+  const closed=text(itemRows(item,opts(79,false))),open=text(itemRows(item,opts(79,true)))
+  assert.doesNotMatch(closed,/result-19/);assert.match(open,/result-19/);assert.match(open,/the original arguments/)
+  assert.equal(JSON.stringify(item),original)
+})

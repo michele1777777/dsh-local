@@ -44,7 +44,7 @@ import {
   accessEn, accessJa, accessEs, accessFr, accessDe, accessRu, accessPt, accessZh, en, ja, es, fr, de, ru, pt, PERMISSION_ACCESS_NS, zh,
 } from './locales.ts'
 import {
-  AUTO_REVIEW_PRESET, displayPermissionPreset, FULL_ACCESS_PRESET,
+  AUTO_REVIEW_PRESET, displayPermissionPreset, FULL_ACCESS_PRESET, SMART_REVIEW_PRESET,
 } from './presentation.ts'
 import { PermissionPresetSettingsController } from './settings-store.ts'
 
@@ -83,22 +83,26 @@ function optionsOf(
   return catalog.options
     .map(option => ({
       id: option.value,
-      label: option.value === AUTO_REVIEW_PRESET
-        ? t('auto.label')
-        : displayPermissionPreset(option.value, option.name, t),
-      ...(option.value === AUTO_REVIEW_PRESET ? { badge: t('auto.badge') } : {}),
-      ...(option.value === AUTO_REVIEW_PRESET
-        ? { detail: t('auto.description') }
-        : option.description !== undefined ? { detail: option.description } : {}),
+      label: option.value === SMART_REVIEW_PRESET
+        ? t('smart.label')
+        : option.value === AUTO_REVIEW_PRESET
+          ? t('auto.label')
+          : displayPermissionPreset(option.value, option.name, t),
+      ...(option.value === SMART_REVIEW_PRESET ? { badge: t('smart.badge') } : option.value === AUTO_REVIEW_PRESET ? { badge: t('auto.badge') } : {}),
+      ...(option.value === SMART_REVIEW_PRESET
+        ? { detail: t('smart.description') }
+        : option.value === AUTO_REVIEW_PRESET
+          ? { detail: t('auto.description') }
+          : option.description !== undefined ? { detail: option.description } : {}),
       ...(option.value === currentValue ? { active: true } : {}),
-      ...(option.value === FULL_ACCESS_PRESET || option.value === AUTO_REVIEW_PRESET
+      ...(option.value === FULL_ACCESS_PRESET || option.value === AUTO_REVIEW_PRESET || option.value === SMART_REVIEW_PRESET
         ? {
           confirmation: {
-            title: t(option.value === AUTO_REVIEW_PRESET ? 'auto.confirm.title' : 'confirm.title'),
-            description: t(option.value === AUTO_REVIEW_PRESET ? 'auto.confirm.description' : 'confirm.description'),
-            acknowledgeLabel: t(option.value === AUTO_REVIEW_PRESET ? 'auto.confirm.acknowledge' : 'confirm.acknowledge'),
+            title: t(option.value === SMART_REVIEW_PRESET ? 'smart.confirm.title' : option.value === AUTO_REVIEW_PRESET ? 'auto.confirm.title' : 'confirm.title'),
+            description: t(option.value === SMART_REVIEW_PRESET ? 'smart.confirm.description' : option.value === AUTO_REVIEW_PRESET ? 'auto.confirm.description' : 'confirm.description'),
+            acknowledgeLabel: t(option.value === SMART_REVIEW_PRESET ? 'smart.confirm.acknowledge' : option.value === AUTO_REVIEW_PRESET ? 'auto.confirm.acknowledge' : 'confirm.acknowledge'),
             cancelLabel: t('confirm.cancel'),
-            confirmLabel: t(option.value === AUTO_REVIEW_PRESET ? 'auto.confirm.enable' : 'confirm.enable'),
+            confirmLabel: t(option.value === SMART_REVIEW_PRESET ? 'smart.confirm.enable' : option.value === AUTO_REVIEW_PRESET ? 'auto.confirm.enable' : 'confirm.enable'),
           },
         }
         : {}),

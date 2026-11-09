@@ -18,6 +18,7 @@ import { PERMISSION_ACCESS_NS } from './locales.ts'
 import {
   AUTO_REVIEW_PRESET as AUTO_REVIEW,
   displayPermissionPreset,
+  SMART_REVIEW_PRESET as SMART_REVIEW,
   FULL_ACCESS_PRESET as FULL_ACCESS,
 } from './presentation.ts'
 import css from './PermissionSelect.module.css'
@@ -42,12 +43,13 @@ function permissionLabel(
   name: string,
   t: PermissionSelectProps['t'],
 ): string {
+  if (value === SMART_REVIEW) return t('smart.label')
   if (value === AUTO_REVIEW) return t('auto.label')
   return displayPermissionPreset(value, name, key => t(key))
 }
 
 function optionBadge(value: string, t: PermissionSelectProps['t']): string | undefined {
-  return value === AUTO_REVIEW ? t('auto.badge') : undefined
+  return value === SMART_REVIEW ? t('smart.badge') : value === AUTO_REVIEW ? t('auto.badge') : undefined
 }
 
 /** Resolve locale-owned copy for the shipped Auto option; preserve host copy for other presets. */
@@ -55,7 +57,7 @@ function optionDescription(
   option: PresetOption,
   t: PermissionSelectProps['t'],
 ): string | undefined {
-  return option.value === AUTO_REVIEW ? t('auto.description') : option.description
+  return option.value === SMART_REVIEW ? t('smart.description') : option.value === AUTO_REVIEW ? t('auto.description') : option.description
 }
 
 /** Business face injected by the permission package's slot registration. */
@@ -130,7 +132,7 @@ export function PermissionSelect({
   const choose = (id: string): void => {
     setOpen(false)
     if (id === selection.currentValue) return
-    if (id === FULL_ACCESS || id === AUTO_REVIEW) {
+    if (id === FULL_ACCESS || id === AUTO_REVIEW || id === SMART_REVIEW) {
       setAcknowledged(false)
       setConfirmation(id)
       return
@@ -148,18 +150,26 @@ export function PermissionSelect({
     submit(id)
   }
 
-  const confirmationTitle = confirmation === AUTO_REVIEW
-    ? t('auto.confirm.title')
-    : t('confirm.title')
-  const confirmationDescription = confirmation === AUTO_REVIEW
-    ? t('auto.confirm.description')
-    : t('confirm.description')
-  const confirmationAcknowledge = confirmation === AUTO_REVIEW
-    ? t('auto.confirm.acknowledge')
-    : t('confirm.acknowledge')
-  const confirmationEnable = confirmation === AUTO_REVIEW
-    ? t('auto.confirm.enable')
-    : t('confirm.enable')
+  const confirmationTitle = confirmation === SMART_REVIEW
+    ? t('smart.confirm.title')
+    : confirmation === AUTO_REVIEW
+      ? t('auto.confirm.title')
+      : t('confirm.title')
+  const confirmationDescription = confirmation === SMART_REVIEW
+    ? t('smart.confirm.description')
+    : confirmation === AUTO_REVIEW
+      ? t('auto.confirm.description')
+      : t('confirm.description')
+  const confirmationAcknowledge = confirmation === SMART_REVIEW
+    ? t('smart.confirm.acknowledge')
+    : confirmation === AUTO_REVIEW
+      ? t('auto.confirm.acknowledge')
+      : t('confirm.acknowledge')
+  const confirmationEnable = confirmation === SMART_REVIEW
+    ? t('smart.confirm.enable')
+    : confirmation === AUTO_REVIEW
+      ? t('auto.confirm.enable')
+      : t('confirm.enable')
 
   return (
     <>

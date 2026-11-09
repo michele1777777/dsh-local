@@ -15,6 +15,9 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../../vendor/schemastery"
+    },
+    {
       "path": "../../core/agent"
     },
     {
@@ -46,6 +49,9 @@
     },
     {
       "path": "../../session/working-directory"
+    },
+    {
+      "path": "../../core/system-prompt"
     },
     {
       "path": "../../core/tool-executor-ptc"

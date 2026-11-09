@@ -1,0 +1,40 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/client/ui-laya-pruner/README.md
+/:
+  en: 6a648055c17f9b2c
+  zh: ff6ff8eb53aceae0
+/deepseek-ai-dsh-client-ui-laya-pruner:
+  en: 36224af96432aa84
+  zh: e2b2996297a7ed96
+/deepseek-ai-dsh-client-ui-laya-pruner/summary:
+  en: 7c67f97eccecd643
+  zh: cc2d5c5ba2c8c328
+/deepseek-ai-dsh-client-ui-laya-pruner/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: be08589a8d2e121d
+/deepseek-ai-dsh-client-ui-laya-pruner/use-this-package:
+  en: 84926395f854c20d
+  zh: ad56641bfe4a5121
+/deepseek-ai-dsh-client-ui-laya-pruner/use-this-package/what-the-row-shows:
+  en: 391e1ade3bb514b6
+  zh: 96df69f99efe8e5a
+/deepseek-ai-dsh-client-ui-laya-pruner/understand-the-implementation:
+  en: e49d473aad28520e
+  zh: fcef4378ea2a5477
+/deepseek-ai-dsh-client-ui-laya-pruner/further-exploration:
+  en: 76e43dbdc7646ef4
+  zh: aa803de77d5cf024
+/deepseek-ai-dsh-client-ui-laya-pruner/model-experience:
+  en: 118bcd72a1e75327
+  zh: cdcf1035b6cfede9
+/deepseek-ai-dsh-client-ui-laya-pruner/model-experience/kv-cache-effect:
+  en: e6ea256de64cb55c
+  zh: 35edfd188c411192
+/deepseek-ai-dsh-client-ui-laya-pruner/known-limitations-and-deferred-work:
+  en: 29f2379716abc5e7
+  zh: 9eb16532bc069591
+/deepseek-ai-dsh-client-ui-laya-pruner/known-limitations-and-deferred-work/dev-note:
+  en: 1756417b4e7292e5
+  zh: 34227b50141127cf

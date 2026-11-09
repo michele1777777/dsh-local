@@ -413,6 +413,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['when no turn is open or either audit event fails before the session append commit point.'],
       },
       {
+        signature: 'recordReview(request: ApprovalRequest, review: ApprovalReview): void',
+        description: 'Attach machine-review metadata to a live question\'s existing audit outcome. This does not authorize the question, append a message, or change its policy.',
+        parameters: [{ name: 'request', description: 'the exact question supplied to an approval/request listener.' }, { name: 'review', description: 'bounded audit fields, with no raw prompt or reasoning.' }],
+      },
+      {
         signature: 'overrideOf(session: Session): ApprovalPolicy | undefined',
         description: 'Read the session override without applying the configured default.',
         parameters: [{ name: 'session', description: 'session whose log supplies the override.' }],
@@ -1835,6 +1840,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'name', description: 'diagnostic label; duplicate names remain independent.' }],
         returns: 'disposer that detaches this controller.',
       },
+      {
+        signature: 'holdWait(owner: SessionId, release: () => void): () => void',
+        description: 'Make one tool call\'s wait on an owned job releasable by releaseWaits. Releasing ends only the wait; the job keeps running and its producer is never cancelled.',
+        parameters: [{ name: 'owner', description: 'session whose human may release the wait.' }, { name: 'release', description: 'ends the wait; called at most once, synchronously inside {@link releaseWaits}.' }],
+        returns: 'disposer that withdraws the wait once it ends on its own.',
+      },
+      {
+        signature: 'releaseWaits(owner: SessionId): number',
+        description: 'Move every wait the owner\'s tool calls hold through holdWait to the background: each wait returns the job\'s current state while the job keeps running, and the job\'s completion reaches the owner through the ordinary settlement events. The human-input entry point that forces pending input calls this; plain steering leaves waits attached.',
+        parameters: [{ name: 'owner', description: 'session whose waits to release.' }],
+        returns: 'how many waits were released; 0 when the owner holds none.',
+      },
     ],
   },
   {
@@ -2190,6 +2207,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the async effect disposer that removes Auto.',
       },
       {
+        signature: 'registerSmart(admit: () => void): () => Promise<void>',
+        description: 'Advertise Smart only while its complete review integration is accepting work.',
+        parameters: [{ name: 'admit', description: 'synchronous selection/resume admission check.' }],
+        returns: 'effect disposer; the provider must close and drain reviews first.',
+      },
+      {
         signature: 'current(session: Session): string',
         description: 'Resolve the preset matching the effective knob values. A still-matching last selection wins shared-bundle ties, and a still-selected Auto also matches the `never` approval policy; otherwise the first configured match wins. Returns CUSTOM_PRESET when no available preset matches.',
         parameters: [{ name: 'session', description: 'the session whose knob state is read.' }],
@@ -2213,6 +2236,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'set(session: Session, name: string): void',
         description: 'Record a changed preset, then update each changed knob through its own setter. Selecting the effective preset again appends nothing.',
         parameters: [{ name: 'session', description: 'the session the switch belongs to.' }, { name: 'name', description: 'the preset to switch to; unknown names throw.' }],
+      },
+      {
+        signature: 'setForAgent(agent: import(\'@deepseek-ai/dsh-agent\').Agent, name: string): void',
+        description: 'Switch through the same live-agent path as /permission, including canonical knob notices.',
+        parameters: [{ name: 'agent', description: 'owning agent with a command turn open.' }, { name: 'name', description: 'selectable preset name.' }],
       },
     ],
   },
@@ -5104,6 +5132,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'provider', description: 'route whose model catalog changed.' }],
   },
   {
+    name: 'llm/preserve-context',
+    mode: 'bail',
+    signature: '\'llm/preserve-context\'(options: GenerateOptions): true | void',
+    summary: 'Opt a request into provider-supported retention of interleaved contexts.',
+    description: 'Opt a request into provider-supported retention of interleaved contexts. This changes transport policy only, never the model-visible request.',
+    parameters: [{ name: 'options', description: 'frozen request whose owning session selects the policy.' }],
+  },
+  {
     name: 'llm/stream',
     mode: 'waterfall',
     signature: '\'llm/stream\'(this: LlmRuntime, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>',
@@ -5232,6 +5268,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'session', description: 'the session whose buffered events must reach durable storage.' }],
   },
   {
+    name: 'session/model-target',
+    mode: 'waterfall',
+    signature: '\'session/model-target\'(payload: { agent: Agent; selected: import(\'@deepseek-ai/dsh-agent\').ModelSelection }, next: () => Promise<Agent>): Promise<Agent>',
+    summary: 'Resolve which live Agent receives a user-selected model, after model validation.',
+    description: 'Resolve which live Agent receives a user-selected model, after model validation.',
+    parameters: [{ name: 'payload', description: 'source Agent and resolved selection.' }, { name: 'next', description: 'next target resolver; defaults to the source Agent.' }],
+  },
+  {
     name: 'settings/document-updated',
     mode: 'emit',
     signature: '\'settings/document-updated\'(ns: SettingsNamespace, revision: number): void',
@@ -5246,6 +5290,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A skill provider, runtime contribution, or provider-backed catalog may have changed.',
     description: 'A skill provider, runtime contribution, or provider-backed catalog may have changed. This is an unfiltered invalidation notification; consumers refetch the catalog for their own lookup options. Listener failures are contained and cannot veto the registry mutation.',
     parameters: [],
+  },
+  {
+    name: 'smart-approval/status',
+    mode: 'emit',
+    signature: '\'smart-approval/status\'(status: ReviewStatus): void',
+    summary: 'An isolated reviewer started or settled; never a model-facing message.',
+    description: 'An isolated reviewer started or settled; never a model-facing message.',
+    parameters: [{ name: 'status', description: 'owning agent, operation, and current review state.' }],
   },
   {
     name: 'subagent/end',
@@ -5624,6 +5676,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ApprovalRequestEvent {\n    readonly agent: Agent;\n    readonly toolName: string;\n    readonly callId?: ToolCallId;\n    readonly reason?: string;\n    readonly displayReason?: {\n        readonly en: string;\n        readonly [locale: string]: string;\n    };\n    readonly signal?: AbortSignal;\n}',
   },
   {
+    name: 'ApprovalReview',
+    declaration: 'export interface ApprovalReview {\n    source: \'policy\' | \'reviewer\' | \'fallback\';\n    decision: \'allow\' | \'ask\' | \'deny\';\n    reason: string;\n    durationMs: number;\n    provider?: string;\n    model?: string;\n}',
+  },
+  {
     name: 'ArchiveSessionOptions',
     declaration: 'export interface ArchiveSessionOptions {\n    readonly stopActivity?: boolean;\n}',
   },
@@ -5865,7 +5921,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CommandDefinition',
-    declaration: 'export interface CommandDefinition {\n    readonly definitionId?: CommandDefinitionId;\n    readonly name: string;\n    readonly description: string;\n    readonly input?: CommandInputDescriptor;\n    readonly recordInput?: boolean;\n    readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>;\n}',
+    declaration: 'export interface CommandDefinition {\n    readonly definitionId?: CommandDefinitionId;\n    readonly name: string;\n    readonly description: string;\n    readonly input?: CommandInputDescriptor;\n    readonly recordInput?: boolean;\n    readonly available?: (agent: Agent) => boolean;\n    readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>;\n}',
   },
   {
     name: 'CommandDefinitionId',
@@ -5901,7 +5957,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CommandResult',
-    declaration: 'export type CommandResult = {\n    readonly kind: \'success\';\n    readonly text?: string;\n    readonly sourceEventSeq?: SessionSeq;\n} | {\n    readonly kind: \'error\';\n    readonly text: string;\n};',
+    declaration: 'export type CommandResult = {\n    readonly kind: \'success\';\n    readonly sessionId?: SessionId;\n    readonly text?: string;\n    readonly sourceEventSeq?: SessionSeq;\n} | {\n    readonly kind: \'error\';\n    readonly text: string;\n};',
   },
   {
     name: 'CommandRunInput',
@@ -8064,8 +8120,8 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
   },
   {
-    name: 'ReviewDecision',
-    declaration: 'export type ReviewDecision = \'approved\' | \'changes-requested\' | \'review-required\' | \'none\';',
+    name: 'ReviewStatus',
+    declaration: 'export interface ReviewStatus {\n    agent: Agent;\n    toolName: string;\n    reviewing: boolean;\n}',
   },
   {
     name: 'RpcId',
@@ -8773,7 +8829,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionSelectModelValue',
-    declaration: 'export interface SessionSelectModelValue {\n    readonly selected: ModelSelection;\n}',
+    declaration: 'export interface SessionSelectModelValue {\n    readonly sessionId?: SessionId;\n    readonly selected: ModelSelection;\n}',
   },
   {
     name: 'SessionSeq',
@@ -9192,10 +9248,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SshStreamEndpoint = z.infer<typeof streamEndpointSchema>;',
   },
   {
-    name: 'StagedAttachment',
-    declaration: 'export type StagedAttachment = {\n    readonly type: \'file\';\n    readonly attachment: FileAttachmentRef;\n} | {\n    readonly type: \'image\';\n    readonly attachment: ImageAttachmentRef;\n    readonly encodedBytes: number;\n};',
-  },
-  {
     name: 'StopShareRequest',
     declaration: 'export interface StopShareRequest {\n    readonly shareId: string;\n}',
   },
@@ -9438,18 +9490,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TeamTaskView',
     declaration: 'export interface TeamTaskView {\n    readonly id: TeamTaskId;\n    readonly revision: number;\n    readonly subject: string;\n    readonly description: string;\n    readonly status: TeamTaskStatus;\n    readonly blockedBy: TeamTaskId[];\n    readonly writeScopes: string[];\n    readonly ownerId?: SessionId;\n    readonly ownerName?: string;\n    readonly ready: boolean;\n    readonly writeScopeWarnings: string[];\n}',
-  },
-  {
-    name: 'TerminalBackend',
-    declaration: 'export interface TerminalBackend {\n    readonly type: string;\n    spawn(spec: TerminalBackendSpawnSpec): Promise<TerminalBackendSession>;\n}',
-  },
-  {
-    name: 'TerminalBackendSession',
-    declaration: 'export interface TerminalBackendSession {\n    readonly motd: string;\n    readonly pid?: number;\n    startSend(request: TerminalSendRequest): TerminalSendOperation;\n    read(request: TerminalReadRequest): TerminalReadResult;\n    signal(signal: TerminalSignal): Promise<TerminalSignalResult>;\n    status(): TerminalSessionStatus;\n    close(reason: string): Promise<void>;\n}',
-  },
-  {
-    name: 'TerminalBackendSpawnSpec',
-    declaration: 'export interface TerminalBackendSpawnSpec extends TerminalSpawnRequest {\n    sessionId: TerminalSessionIdValue;\n    owner: Agent;\n    signal?: AbortSignal;\n}',
   },
   {
     name: 'TerminalCallView',
@@ -9734,10 +9774,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ToolUseSummary',
     declaration: 'export interface ToolUseSummary {\n    tool_use_id: string;\n    tool: string;\n    input: Record<string, unknown>;\n}',
-  },
-  {
-    name: 'Transcript',
-    declaration: 'export interface Transcript {\n    readonly text: string;\n    readonly audioSeconds: number;\n    readonly inferenceSeconds: number;\n}',
   },
   {
     name: 'TranscriptionRequest',

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Laya-Kontextkürzung",
+    "description": "Kürzt älteren Kontext wortgetreu mit dem Laya-Modell, bevor eine Zusammenfassung erstellt wird."
+  }
+}

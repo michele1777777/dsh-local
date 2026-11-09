@@ -4,8 +4,10 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { LlmResolvedModelInfo, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type { Session, SessionEvent, SessionSeq } from '@deepseek-ai/dsh-session'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import {
+  fallbackSessionTitle,
   normalizeSessionTitle,
   SessionTitleProviderId,
   type SessionTitleUserMessage,
@@ -137,6 +139,35 @@ function titleFromResponse(response: SessionTitleLlmResponse): string {
 }
 /* jscpd:ignore-end */
 
+/** The objective of a `goal/change` creation (owned by `@deepseek-ai/dsh-goal`), read from its durable data. */
+function goalObjectiveOf(event: SessionEvent): string | undefined {
+  if ((event.type as string) !== 'goal/change') return undefined
+  const data: unknown = event.data
+  if (typeof data !== 'object' || data === null || !('operation' in data) || data.operation !== 'create' || !('goal' in data)) return undefined
+  const goal: unknown = data.goal
+  return typeof goal === 'object' && goal !== null && 'objective' in goal && typeof goal.objective === 'string' ? goal.objective : undefined
+}
+
+/**
+ * The goal objective a session started from, when it has no human prompt. A
+ * session started with `/goal` logs its first round under the goal, so the
+ * title service, which may cite only human `user/message` events, never sees
+ * a first prompt there.
+ */
+function goalSeed(session: Session): { seq: SessionSeq; text: string } | undefined {
+  if (session.header.parentSession !== undefined || session.inheritedEventCount > 0) return undefined
+  let seed: { seq: SessionSeq; text: string } | undefined
+  // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
+  for (const event of session.snapshotEvents()) {
+    if (event.type === 'user/message' && event.data.source.kind === 'user') return undefined
+    const objective = seed === undefined ? goalObjectiveOf(event) : undefined
+    if (objective !== undefined && normalizeSessionTitle(objective, Number.MAX_SAFE_INTEGER).length > 0) {
+      seed = { seq: event.seq, text: objective }
+    }
+  }
+  return seed
+}
+
 /**
  * Register the first-prompt model provider.
  * @param ctx - context exposing session-title, LLM, and session services.
@@ -163,5 +194,42 @@ export function apply(ctx: Context, config: Config): void {
         model: response.model,
       }
     },
+  })
+
+  // A session started with `/goal` is titled from its objective once its first
+  // turn is routed. The title is recorded as a rename: an automatic title must
+  // cite a human message, which such a session lacks, so the call also runs
+  // without a `session/title-llm-request` record.
+  const attempted = new WeakSet<Session>()
+  const lifetime = new AbortController()
+  ctx.effect(() => () => { lifetime.abort(new Error('session-title-first-prompt-llm disposed')) }, 'goal session titles')
+  ctx.on('session/event', (session, event) => {
+    // A resumed session logs a header only when its route changes, so a turn start also reads the latest one.
+    if (event.type !== 'request/header' && event.type !== 'turn/start') return
+    const config = event.type === 'request/header' ? event.data.header.config : session.requestHeader()?.config
+    if (config === undefined || attempted.has(session) || ctx.sessionTitle.get(session) !== undefined) return
+    const seed = goalSeed(session)
+    if (seed === undefined) return
+    attempted.add(session)
+    const route = { provider: config.provider, model: config.model }
+    void (async () => {
+      let title: string
+      try {
+        const request = { session, messages: [], route, signal: lifetime.signal }
+        const response = await executeSessionTitleLlm(ctx, resolved, request, titleProvider, {
+          system: systemPrompt(resolved),
+          input: frameMessages([seed]),
+          messageSeqs: [],
+          selectReasoningEffort,
+        })
+        title = titleFromResponse(response)
+      } catch (error: unknown) {
+        if (lifetime.signal.aborted) return
+        ctx.logger.warn(`session "${session.id}": goal title generation failed, using the objective: ${String(error)}`)
+        title = fallbackSessionTitle(seed.text, resolved.targetWords, Number.MAX_SAFE_INTEGER)
+      }
+      if (lifetime.signal.aborted || ctx.sessions.get(session.id) !== session || ctx.sessionTitle.get(session) !== undefined) return
+      ctx.sessionTitle.rename(session, title)
+    })()
   })
 }

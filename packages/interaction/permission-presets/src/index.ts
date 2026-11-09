@@ -3,8 +3,8 @@
  * approval-policy knobs. A switch records the selected preset, then writes
  * changed knobs through their canonical setters. Execution, prompt narration,
  * and replay keep reading their knob folds. The preset event preserves user
- * intent when two presets share a bundle. The Auto review integration may
- * publish one fixed, current-session-only preset with a synchronous admission
+ * intent when two presets share a bundle. Auto review and Smart approval each
+ * publish a fixed, current-session-only preset with a synchronous admission
  * check; settings defaults remain limited to the configured table. The read
  * side exposes a process catalog plus the current-value-only `permissions`
  * Session projection; the write side ships as the `/permission` command.
@@ -74,6 +74,16 @@ export const CUSTOM_PRESET = 'custom'
 
 /** Canonical identity of the experimental per-call review preset. */
 export const AUTO_PRESET = 'auto'
+
+/** Current-session isolated reviewer over the ordinary workspace sandbox. */
+export const SMART_PRESET = 'smart'
+
+const SMART_PRESET_SPEC: PresetSpec = {
+  sandbox: 'workspace-write',
+  approval: 'ask',
+  name: 'Smart approval',
+  description: 'Workspace sandbox with isolated same-model approval review and human fallback. Uses extra tokens.',
+}
 
 /**
  * Fixed execution bundle for the live Auto integration. `ask` routes reviewer
@@ -196,6 +206,7 @@ export class PermissionPresetService extends TypertRemoteService {
 
   private readonly presets: Record<string, PresetSpec>
   private autoAdmit: (() => void) | undefined
+  private smartAdmit: (() => void) | undefined
   private defaultSettings: () => PermissionSettings
 
   private permissionProjectionHandle: ProjectionHandle<PermissionProjectionState> | undefined
@@ -208,6 +219,9 @@ export class PermissionPresetService extends TypertRemoteService {
     this.presets = config.presets
     if (CUSTOM_PRESET in this.presets) {
       throw new Error(`permission: "${CUSTOM_PRESET}" is reserved for the derived not-a-preset state and cannot name a table entry`)
+    }
+    if (SMART_PRESET in this.presets) {
+      throw new Error('permission: "smart" is reserved for the live Smart approval integration')
     }
     if (AUTO_PRESET in this.presets) {
       throw new Error(`permission: "${AUTO_PRESET}" is reserved and cannot name a configured preset`)
@@ -268,7 +282,7 @@ export class PermissionPresetService extends TypertRemoteService {
           if (!this.names.includes(name)) {
             return { kind: 'error', text: `unknown preset "${name}" (available: ${this.names.join(', ')})` }
           }
-          this.apply(agent.session, name, (policy) => { this.ctx.approval.setPolicy(agent, policy) })
+          this.setForAgent(agent, name)
           return { kind: 'success', text: `preset ${name}` }
         },
       })
@@ -277,11 +291,15 @@ export class PermissionPresetService extends TypertRemoteService {
 
   /**
    * The advertised preset names: configured entries in declaration order,
-   * followed by Auto while its integration is live.
+   * followed by Auto and Smart while their integrations are live.
    * @returns every switchable preset name.
    */
   get names(): readonly string[] {
-    return [...Object.keys(this.presets), ...(this.autoAdmit === undefined ? [] : [AUTO_PRESET])]
+    return [
+      ...Object.keys(this.presets),
+      ...(this.autoAdmit === undefined ? [] : [AUTO_PRESET]),
+      ...(this.smartAdmit === undefined ? [] : [SMART_PRESET]),
+    ]
   }
 
   /**
@@ -313,6 +331,23 @@ export class PermissionPresetService extends TypertRemoteService {
         this.emitCatalogChanged()
       }
     }, 'permissionPresets.registerAuto()')
+  }
+
+  /**
+   * Advertise Smart only while its complete review integration is accepting work.
+   * @param admit - synchronous selection/resume admission check.
+   * @returns effect disposer; the provider must close and drain reviews first.
+   */
+  registerSmart(admit: () => void): () => Promise<void> {
+    return this.ctx.effect(() => {
+      if (this.smartAdmit !== undefined) throw new Error('permission: Smart approval is already registered')
+      this.smartAdmit = admit
+      this.emitCatalogChanged()
+      return () => {
+        this.smartAdmit = undefined
+        this.emitCatalogChanged()
+      }
+    }, 'permissionPresets.registerSmart()')
   }
 
   /**
@@ -399,10 +434,20 @@ export class PermissionPresetService extends TypertRemoteService {
     this.apply(session, name, (policy) => { setApprovalPolicy(session, policy) })
   }
 
+  /**
+   * Switch through the same live-agent path as /permission, including canonical knob notices.
+   * @param agent - owning agent with a command turn open.
+   * @param name - selectable preset name.
+   */
+  setForAgent(agent: import('@deepseek-ai/dsh-agent').Agent, name: string): void {
+    this.apply(agent.session, name, (policy) => { this.ctx.approval.setPolicy(agent, policy) })
+  }
+
   /** Apply one preset through its durable identity and canonical knob setters. */
   private apply(session: Session, name: string, setApproval: (policy: ApprovalPolicy) => void): void {
     const spec = this.resolve(name)
     if (name === AUTO_PRESET) this.autoAdmit?.()
+    if (name === SMART_PRESET) this.smartAdmit?.()
     const current = this.current(session)
     const knobs = this.permissionState(session)
     const updateKnobs = (): void => {
@@ -429,6 +474,10 @@ export class PermissionPresetService extends TypertRemoteService {
   private pinInitialPermission(session: Session): void {
     const state = this.permissionState(session)
     const { preset, sandbox, approval, seeded } = state
+    if (preset === SMART_PRESET) {
+      if (this.smartAdmit === undefined) throw new Error('permission: cannot restore "smart" without its active integration')
+      this.smartAdmit()
+    }
     if (preset === AUTO_PRESET) {
       if (this.autoAdmit === undefined) {
         throw new Error('permission: cannot restore preset "auto" without its active integration')
@@ -476,6 +525,7 @@ export class PermissionPresetService extends TypertRemoteService {
   private specOf(name: string): PresetSpec | undefined {
     return this.presets[name]
       ?? (name === AUTO_PRESET && this.autoAdmit !== undefined ? AUTO_PRESET_SPEC : undefined)
+      ?? (name === SMART_PRESET && this.smartAdmit !== undefined ? SMART_PRESET_SPEC : undefined)
   }
 }
 

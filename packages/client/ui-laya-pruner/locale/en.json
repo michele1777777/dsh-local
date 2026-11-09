@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Laya pruning panel",
+    "description": "Show each Laya pruning pass in the conversation with its phases, totals, and kept and pruned outputs."
+  }
+}

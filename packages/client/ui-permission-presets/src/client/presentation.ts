@@ -6,6 +6,9 @@ export const FULL_ACCESS_PRESET = 'danger-full-access'
 /** Machine value of the experimental current-session review preset. */
 export const AUTO_REVIEW_PRESET = 'auto'
 
+/** Machine value for sandbox-preserving isolated approval review. */
+export const SMART_REVIEW_PRESET = 'smart'
+
 /** Locale dictionary key for a built-in permission preset label. */
 export type PermissionPresetLabelKey =
   | 'preset.readOnly'

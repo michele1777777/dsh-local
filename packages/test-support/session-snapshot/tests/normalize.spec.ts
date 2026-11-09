@@ -1321,3 +1321,12 @@ describe('scrubToolSchemas', () => {
     expect(scrubToolSchemas(out)).toBe(out)
   })
 })
+
+it('normalizes only Laya elapsed time while preserving phases and pruning outcomes', () => {
+  const events = [
+    { type: 'laya-pruner/progress', data: { pruneId: 'test', turn: 1, phase: 'restore' } },
+    { type: 'laya-pruner/end', data: { pruneId: 'test', turn: 1, ms: 1234, outcome: 'fallback', tokensBefore: 18000, tokensAfter: 18000 } },
+  ]
+  const normalized = normalizeSessionLog(events.map(event => JSON.stringify(event)).join('\n'), ctx).trim().split('\n').map(line => JSON.parse(line) as (typeof events)[number])
+  expect(normalized).toEqual([events[0], { ...events[1], data: { ...events[1]!.data, ms: 0 } }])
+})

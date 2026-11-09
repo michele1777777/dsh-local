@@ -14,6 +14,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { installJobArchiveAdmission } from './archive-admission.ts'
 import type { JobEvents, JobId, JobOutputRead, JobRead, JobSpec, JobView } from './types.ts'
 
+export { waitForForegroundJob } from './foreground-wait.ts'
 export { JobId } from './types.ts'
 export type {
   JobAppendOptions,
@@ -86,6 +87,9 @@ declare module '@deepseek-ai/cordis' {
  *   the stream; the ring has no separate lifecycle.
  */
 export abstract class JobRegistry extends Service {
+  /** Releases of waits an owner's human may move to the background, by owner. */
+  private readonly heldWaits = new Map<SessionId, Set<() => void>>()
+
   constructor(ctx: Context) {
     // `abstract` erases at runtime, so a composition row naming this package
     // would register a ctx.jobs with no method implementations and fail far
@@ -193,6 +197,42 @@ export abstract class JobRegistry extends Service {
    * @returns disposer that detaches this controller.
    */
   abstract attachController(name: string): () => void
+
+  /**
+   * Make one tool call's wait on an owned job releasable by {@link releaseWaits}.
+   * Releasing ends only the wait; the job keeps running and its producer is never cancelled.
+   * @param owner - session whose human may release the wait.
+   * @param release - ends the wait; called at most once, synchronously inside {@link releaseWaits}.
+   * @returns disposer that withdraws the wait once it ends on its own.
+   */
+  holdWait(owner: SessionId, release: () => void): () => void {
+    let held = this.heldWaits.get(owner)
+    if (held === undefined) this.heldWaits.set(owner, held = new Set())
+    const entry = (): void => { release() }
+    held.add(entry)
+    return () => {
+      held.delete(entry)
+      if (held.size === 0 && this.heldWaits.get(owner) === held) this.heldWaits.delete(owner)
+    }
+  }
+
+  /**
+   * Move every wait the owner's tool calls hold through {@link holdWait} to the background:
+   * each wait returns the job's current state while the job keeps running, and the
+   * job's completion reaches the owner through the ordinary settlement events.
+   * The human-input entry point that forces pending input calls this; plain
+   * steering leaves waits attached.
+   * @param owner - session whose waits to release.
+   * @returns how many waits were released; 0 when the owner holds none.
+   */
+  releaseWaits(owner: SessionId): number {
+    const held = this.heldWaits.get(owner)
+    if (held === undefined) return 0
+    this.heldWaits.delete(owner)
+    const releases = [...held]
+    for (const release of releases) release()
+    return releases.length
+  }
 }
 
 export default JobRegistry

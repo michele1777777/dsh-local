@@ -63,6 +63,8 @@ Registration belongs to the calling plugin and returns an effect disposer. Dispo
 <a id="acceptance-and-retry"></a>
 ## Acceptance and retry
 
+Requests tagged `auto-review` omit the session-log extension: their session identity routes caches only, and review acceptance never advances the main upload watermark.
+
 The DeepSeek adapter calls the prepared contribution's `accept()` after HTTP 2xx, before it consumes the SSE body. Acceptance appends `session-log-deepseek/delivery-accepted` with the uploaded `throughSeq` and `sessionFormatVersion`; a record that omits the format field denotes v0. The next request uploads that event as part of its new suffix. Transport failures, non-2xx failures, and requests that the DeepSeek adapter sends without extension fields after they fail to serialize append no acceptance record, so later requests resend the uncertain range. Concurrent deliveries may be accepted out of order; folding the maximum matching `throughSeq` prevents cursor regression.
 
 A crash after server acceptance but before the watermark reaches persistence can replay an accepted range after restart. This is the at-least-once failure direction: uncertainty creates duplicates, never a skipped sequence. The ordinary session checkpoint policy persists the watermark at the next semantic checkpoint; this plugin performs no independent I/O.

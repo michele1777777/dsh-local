@@ -7,7 +7,7 @@
  * @module @deepseek-ai/dsh-commands/types
  */
 
-import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
+import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { CommandDefinitionId, CommandId } from './brand.ts'
 import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
 
@@ -34,6 +34,8 @@ export interface CommandInputDescriptor {
 export type CommandResult =
   | {
     readonly kind: 'success'
+    /** Session created by the command; capable UIs navigate after successful settlement. */
+    readonly sessionId?: SessionId
     readonly text?: string
     /** Earlier authoritative domain event that owns a richer presentation. */
     readonly sourceEventSeq?: SessionSeq

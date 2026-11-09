@@ -470,7 +470,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'useAccess: (action: RemoteEndpoint) => boolean',
       'useTrajectory: UseTrajectory',
     ],
-    keyDomain: 'fixed by the owner\'s key table { [Kind in ChatNodeKind]: { node: ChatNode<Kind> } }, already taken: assistant-step, command, command-input, compaction, context, manual-compaction, model-retry, question-reply, steering, system-prompt, tool-call, turn-error, turn-max-tokens, turn-process, turn-tail, turn-trigger, unknown, user, workflow-run',
+    keyDomain: 'fixed by the owner\'s key table { [Kind in ChatNodeKind]: { node: ChatNode<Kind> } }, already taken: assistant-step, command, command-input, compaction, context, laya-pruner, manual-compaction, model-retry, prechat-user, question-reply, steering, system-prompt, tool-call, turn-error, turn-max-tokens, turn-process, turn-tail, turn-trigger, unknown, user, workflow-run',
     hookContext: 'ChatNodeHookContext',
     slotInject: 'ChatNodeInjected',
     declaredBy: 'an entry in \'conversation.chat.flow\' (client-ui-chat), so it exists while that entry is mounted',
@@ -491,6 +491,8 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'client-ui-chat TurnTailNodeView key \'turn-tail\'',
       'client-ui-chat UnknownNodeView key \'unknown\'',
       'client-ui-goal GoalCommandInputView key \'command-input\'',
+      'client-ui-laya-pruner LayaPrunerPanel key \'laya-pruner\'',
+      'client-ui-prechat ImportedUserMessage key \'prechat-user\'',
       'client-ui-tool ToolCallTree key \'tool-call\'',
       'client-ui-user-questions QuestionReplyView key \'question-reply\'',
       'client-ui-workflow-run WorkflowRunPanel key \'workflow-run\'',
@@ -1363,6 +1365,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     ownerPropsReferences: [
       'InputState',
+      'Point',
       'SessionSnapshot',
     ],
     standardProps: [
@@ -1394,6 +1397,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'client-ui-conversation QueueDock id \'queue\'',
       'client-ui-conversation TodoDock id \'todo\'',
       'client-ui-goal GoalDock id \'goal\'',
+      'client-ui-prechat PrechatNotice id \'prechat-notice\'',
       'experimental-client-ui-claude-code-mods Band id \'claude-code-mods\'',
       'experimental-client-ui-forge WorktreeProgress id \'forge-panel.worktree\'',
     ],
@@ -1664,6 +1668,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'client-ui-commands PopupSelectView id \'command-popup\'',
       'client-ui-input-trigger MenuView id \'slash-menu\'',
       'client-ui-message-feedback FeedbackDialog id \'feedback-dialog\'',
+      'client-ui-prechat PrechatPanel id \'prechat\'',
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.input.overlay\', () => ctx.slots.register(\n      { name: \'conversation.input.overlay\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
@@ -1841,9 +1846,13 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       },
     ],
     ownerProps: [
+      'export interface PendingQuestion {\n  kind: \'question\'\n  id: string\n  questions: AskUserQuestionItem[]\n  resolve(answer: AskUserQuestionAnswer): void\n  reject(error: unknown): void\n}',
       '/**\n * A request narrowed to the `plan-review` presentation intent: everything the\n * decision card renders and answers with, so the panel never re-reads the\n * request fields. `approve` and `decline` are the asker\'s own options — an\n * answer must carry one of those labels verbatim — and `plan` is the markdown\n * body under review.\n */\nexport interface PlanReview {\n  /** The reviewed question\'s id, echoed in the answer. */\n  id: string\n  /** The question text, kept as the card\'s accessible name. */\n  question: string\n  /** The plan markdown under review. */\n  plan: string\n  /** Logged tool invocation used to reopen this plan. */\n  callId?: ToolCallId\n  /** The option that approves the plan. */\n  approve: QuestionOption\n  /** The option that declines it; absent when the asker offered no other option. */\n  decline?: QuestionOption\n}',
     ],
-    ownerPropsReferences: [],
+    ownerPropsReferences: [
+      'AskUserQuestionAnswer',
+      'AskUserQuestionItem',
+    ],
     standardProps: [
       'useRemoteAccess: (action: RemoteEndpoint) => boolean',
       'useResource: UseResource',
@@ -5316,6 +5325,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       '/** Owner share of one Session row action occurrence: the row the action belongs to. */\nexport interface SessionRowOwnerProps {\n  /** Session the row shows. */\n  sessionId: SessionId\n  /** Row display title: persisted title, or empty when the Session has none. */\n  displayTitle: string\n}',
     ],
     ownerPropsReferences: [
+      'Row',
       'SessionId',
     ],
     standardProps: [
@@ -5369,6 +5379,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       '/** Owner share of one Session row action occurrence: the row the action belongs to. */\nexport interface SessionRowOwnerProps {\n  /** Session the row shows. */\n  sessionId: SessionId\n  /** Row display title: persisted title, or empty when the Session has none. */\n  displayTitle: string\n}',
     ],
     ownerPropsReferences: [
+      'Row',
       'SessionId',
     ],
     standardProps: [

@@ -77,6 +77,27 @@ class StubJobRegistry extends JobRegistry {
 }
 
 describe('JobRegistry seam', () => {
+  it('releases only the held waits of the requested owner, once each', async () => {
+    const ctx = new Context()
+    await ctx.plugin(StubJobRegistry)
+    const owner = SessionId('session-1')
+    const other = SessionId('session-2')
+    const released: string[] = []
+    const withdrawFirst = ctx.jobs.holdWait(owner, () => { released.push('first') })
+    ctx.jobs.holdWait(owner, () => { released.push('second') })
+    const withdrawOther = ctx.jobs.holdWait(other, () => { released.push('other') })
+    withdrawOther()
+    expect(ctx.jobs.releaseWaits(other)).toBe(0)
+    expect(ctx.jobs.releaseWaits(owner)).toBe(2)
+    expect(released).toEqual(['first', 'second'])
+    // A wait that ends after its release withdraws without touching a later hold.
+    withdrawFirst()
+    ctx.jobs.holdWait(owner, () => { released.push('later') })
+    expect(ctx.jobs.releaseWaits(owner)).toBe(1)
+    expect(released).toEqual(['first', 'second', 'later'])
+    expect(ctx.jobs.releaseWaits(owner)).toBe(0)
+  })
+
   it('a concrete subclass registers as ctx.jobs and serves the abstract API', async () => {
     const ctx = new Context()
     await ctx.plugin(StubJobRegistry)

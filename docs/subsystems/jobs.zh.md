@@ -546,6 +546,26 @@ abstract remove(id: JobId, caller?: SessionId): void
  * @returns disposer that detaches this controller.
  */
 abstract attachController(name: string): () => void
+
+/**
+ * Make one tool call's wait on an owned job releasable by {@link releaseWaits}.
+ * Releasing ends only the wait; the job keeps running and its producer is never cancelled.
+ * @param owner - session whose human may release the wait.
+ * @param release - ends the wait; called at most once, synchronously inside {@link releaseWaits}.
+ * @returns disposer that withdraws the wait once it ends on its own.
+ */
+holdWait(owner: SessionId, release: () => void): () => void
+
+/**
+ * Move every wait the owner's tool calls hold through {@link holdWait} to the background:
+ * each wait returns the job's current state while the job keeps running, and the
+ * job's completion reaches the owner through the ordinary settlement events.
+ * The human-input entry point that forces pending input calls this; plain
+ * steering leaves waits attached.
+ * @param owner - session whose waits to release.
+ * @returns how many waits were released; 0 when the owner holds none.
+ */
+releaseWaits(owner: SessionId): number
 ```
 
 Types: [SessionId](core.zh.md)

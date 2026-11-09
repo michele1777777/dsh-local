@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Laya context pruning",
+    "description": "Prune older context verbatim with the Laya model before summary compaction."
+  }
+}

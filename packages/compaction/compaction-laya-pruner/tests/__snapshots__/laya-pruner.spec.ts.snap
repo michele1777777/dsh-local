@@ -1,0 +1,85 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`managed pruning and summary fallback through Loader and AgentLoop > failure pruning 1`] = `
+{
+  "compactionEvents": [
+    "compaction/start",
+    "compaction/end",
+  ],
+  "finalAnswer": "ok",
+  "phases": [
+    "release",
+    "start",
+    "prune",
+    "stop",
+    "restore",
+  ],
+  "pruning": [
+    "fallback",
+  ],
+  "summaryCalls": 1,
+}
+`;
+
+exports[`managed pruning and summary fallback through Loader and AgentLoop > ineffective pruning 1`] = `
+{
+  "compactionEvents": [
+    "compaction/start",
+    "compaction/end",
+  ],
+  "finalAnswer": "ok",
+  "phases": [
+    "release",
+    "start",
+    "prune",
+    "stop",
+    "restore",
+  ],
+  "pruning": [
+    "fallback",
+  ],
+  "summaryCalls": 1,
+}
+`;
+
+exports[`managed pruning and summary fallback through Loader and AgentLoop > insufficient pruning 1`] = `
+{
+  "compactionEvents": [
+    "compaction/prune",
+    "compaction/start",
+    "compaction/end",
+  ],
+  "finalAnswer": "ok",
+  "phases": [
+    "release",
+    "start",
+    "prune",
+    "stop",
+    "restore",
+  ],
+  "pruning": [
+    "pruned",
+  ],
+  "summaryCalls": 1,
+}
+`;
+
+exports[`managed pruning and summary fallback through Loader and AgentLoop > sufficient pruning 1`] = `
+{
+  "compactionEvents": [
+    "compaction/prune",
+  ],
+  "finalAnswer": "ok",
+  "phases": [
+    "release",
+    "start",
+    "prune",
+    "stop",
+    "restore",
+  ],
+  "pruning": [
+    "pruned",
+  ],
+  "summaryCalls": 0,
+}
+`;

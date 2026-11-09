@@ -44,6 +44,10 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
   'image/offload',
   'job/registered',
   'job/settled',
+  'laya-pruner/end',
+  'laya-pruner/progress',
+  'laya-pruner/rewrite',
+  'laya-pruner/start',
   'llm/retry',
   'llm/retry-started',
   'model/selection',
@@ -88,4 +92,5 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
 /** Event types whose model-visible effects require an explicit pure interpreter. */
 export const MESSAGE_PROJECTION_EVENT_TYPES: ReadonlySet<string> = new Set([
   'image/offload',
+  'laya-pruner/rewrite',
 ])

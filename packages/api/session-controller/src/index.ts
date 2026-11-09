@@ -1,5 +1,4 @@
 /** Session Remote owner: cold reads, explicit Agent commands, and live control state. */
-
 import { hostname } from 'node:os'
 import { resolve } from 'node:path'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -65,6 +64,19 @@ import type {
   SessionUpdateQueueRequest,
   SessionUpdateQueueValue,
 } from './types.ts'
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * Resolve which live Agent receives a user-selected model, after model validation.
+     * @mode waterfall
+     * @param payload - source Agent and resolved selection.
+     * @param next - next target resolver; defaults to the source Agent.
+     * @returns the Agent to configure, which may be a newly created blank Session.
+     */
+    'session/model-target'(payload: { agent: Agent; selected: import('@deepseek-ai/dsh-agent').ModelSelection }, next: () => Promise<Agent>): Promise<Agent>
+  }
+}
 
 export type * from './types.ts'
 export { ApiSessionNotFound } from './agent.ts'

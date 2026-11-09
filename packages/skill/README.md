@@ -24,6 +24,7 @@ The skill family lets agents and users discover and load reusable task instructi
 
 | Package | Role | ctx key |
 |---|---|---|
+| [`command-skills/`](command-skills/README.md) | Lists the skills installed for a session through the human-facing `/skills` chat command | registers on `ctx.commands` |
 | [`skill/`](skill/README.md) | Registry that merges skill catalogs from any provider and resolves the winning skill for a name | `ctx.skills` |
 | [`skill-filesystem/`](skill-filesystem/README.md) | Discovers skills from project, custom, and user directories and watches them for changes | registers on `ctx.skills` |
 | [`skill-office/`](skill-office/README.md) | Bundles Word, PowerPoint, and Excel workflows with structural file checks | registers on `ctx.skills` |

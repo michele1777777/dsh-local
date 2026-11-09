@@ -1,7 +1,14 @@
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { parseDshArgs } from '../src/args.ts'
+import { parseDshArgs, profileDirectoryExists, type ProfileLookup } from '../src/args.ts'
 
-const parse = (argv: string[], manageDesktopProfile = false) => parseDshArgs(argv, '1.2.3', manageDesktopProfile)
+/** The suite's $DSH_HOME holds one initialized custom profile, `custom`. */
+const customOnly: ProfileLookup = name => name === 'custom'
+
+const parse = (argv: string[], manageDesktopProfile = false, profileExists: ProfileLookup = customOnly) =>
+  parseDshArgs(argv, '1.2.3', manageDesktopProfile, profileExists)
 
 /** Capture the process exit code while muting Commander's output. */
 function exitCode(argv: string[], manageDesktopProfile = false): number {
@@ -56,7 +63,22 @@ describe('parseDshArgs', () => {
       .toEqual({ mode: 'profile', profile: 'web', fromDefaultProfile: 'web', patches: [], args: [] })
   })
 
-  it.each(['web', 'headless', 'sdk', 'sdk-minimal', 'acp', 'tui', 'custom', 'run', 'help'])('expands %s without looking up profiles', (profile) => {
+  it.each(['web', 'headless', 'sdk', 'sdk-minimal', 'acp', 'tui'])('expands shipped %s without looking up profiles', (profile) => {
+    const noLookup: ProfileLookup = (name) => { throw new Error(`looked up ${name}`) }
+    for (const args of [
+      [], ['task', 'words'], ['--help'], ['-h'], ['web'],
+      ['--patch', 'a.yml', '--patch', 'b.yml'],
+      ['--dump-config'], ['--', '--', 'task'], ['plugin'],
+    ]) {
+      expect(parse([profile, ...args], false, noLookup)).toEqual(parse(['--profile', profile, ...args], false, noLookup))
+    }
+  })
+
+  // Upstream expanded every leading word; here only words that name a profile
+  // do, so `custom` is an initialized profile and `run`/`help` (no such
+  // profile) become the chat's prompt unless a launcher flag follows them.
+  it.each(['custom', 'run', 'help'])('expands %s like --profile when it names a profile', (profile) => {
+    const lookup: ProfileLookup = name => name === profile
     for (const args of [
       [], ['task', 'words'], ['--help'], ['-h'], ['web'],
       ['--patch', 'a.yml', '--patch', 'b.yml'],
@@ -66,7 +88,73 @@ describe('parseDshArgs', () => {
       ['--', '--help'], ['--', '--', 'task'],
       ['plugin'], ['--', 'plugin'],
     ]) {
-      expect(parse([profile, ...args])).toEqual(parse(['--profile', profile, ...args]))
+      expect(parse([profile, ...args], false, lookup)).toEqual(parse(['--profile', profile, ...args], false, lookup))
+    }
+  })
+
+  it.each(['run', 'help', 'fix the failing tests', 'resume', 'continue', 'Web', 'node_modules', '..'])('hands non-profile word %j to the terminal chat', (word) => {
+    const none: ProfileLookup = () => false
+    expect(parse([word], false, none)).toEqual({ mode: 'profile', profile: 'tui', patches: [], args: [word] })
+    expect(parse([word, 'more', '--words', '-V'], false, none))
+      .toEqual({ mode: 'profile', profile: 'tui', patches: [], args: [word, 'more', '--words', '-V'] })
+    // A launcher flag after the word makes it a profile name.
+    expect(parse([word, '--patch', 'a.yml'], false, none)).toMatchObject({ profile: word, patches: ['a.yml'] })
+    expect(parse([word, '--dump-default-config'], false, none)).toMatchObject({ mode: 'dump-config', profile: word })
+  })
+
+  it('boots the terminal chat when no profile is named', () => {
+    const tui = { mode: 'profile', profile: 'tui', patches: [] }
+    expect(parse([])).toEqual({ ...tui, args: [] })
+    expect(parse(['fix the failing tests'])).toEqual({ ...tui, args: ['fix the failing tests'] })
+    expect(parse(['fix', 'the', 'tests'])).toEqual({ ...tui, args: ['fix', 'the', 'tests'] })
+    expect(parse(['--continue'])).toEqual({ ...tui, args: ['--continue'] })
+    expect(parse(['-c', 'and then'])).toEqual({ ...tui, args: ['-c', 'and then'] })
+    expect(parse(['--resume'])).toEqual({ ...tui, args: ['--resume'] })
+    expect(parse(['--resume', 'session-1'])).toEqual({ ...tui, args: ['--resume', 'session-1'] })
+    expect(parse(['-r', 'session-1', 'next step'])).toEqual({ ...tui, args: ['-r', 'session-1', 'next step'] })
+    expect(parse(['resume', '--last'])).toEqual({ ...tui, args: ['resume', '--last'] })
+    expect(parse(['-m', 'deepseek/chat', 'hi'])).toEqual({ ...tui, args: ['-m', 'deepseek/chat', 'hi'] })
+    // `--` keeps a prompt that is also a profile name for the chat.
+    expect(parse(['--', 'web'])).toEqual({ ...tui, args: ['web'] })
+    expect(parse(['--', 'custom', '--patch', 'x.yml'])).toEqual({ ...tui, args: ['custom', '--patch', 'x.yml'] })
+    // Launcher flags still apply to the chat profile.
+    expect(parse(['--patch', 'a.yml', 'hello'])).toEqual({ ...tui, patches: ['a.yml'], args: ['hello'] })
+    expect(parse(['--patch', 'a.yml', 'tui'])).toEqual({ ...tui, patches: ['a.yml'], args: ['tui'] })
+    expect(parse(['--dump-config'])).toEqual({ mode: 'dump-config', profile: 'tui', defaultOnly: false, patches: [] })
+    expect(parse(['--dump-default-config'])).toEqual({ mode: 'dump-config', profile: 'tui', defaultOnly: true, patches: [] })
+    expect(parse(['--dump-config-schema'])).toEqual({ mode: 'dump-config-schema', profile: 'tui', patches: [] })
+    // Flags the launcher no longer owns reach the chat, which rejects what it does not know.
+    expect(parse(['--config', 'c.yml'])).toEqual({ ...tui, args: ['--config', 'c.yml'] })
+    expect(parse(['-p', 'task'])).toEqual({ ...tui, args: ['-p', 'task'] })
+    expect(parse(['--bogus'])).toEqual({ ...tui, args: ['--bogus'] })
+  })
+
+  it.each([['--web'], ['-web']])('spells the web profile as a leading %s', (flag) => {
+    expect(parse([flag])).toEqual(parse(['web']))
+    expect(parse([flag, '--port', '8080', '--no-open']))
+      .toEqual({ mode: 'profile', profile: 'web', patches: [], args: ['--port', '8080', '--no-open'] })
+    expect(parse([flag, '--patch', 'w.yml', '--dump-config']))
+      .toEqual({ mode: 'dump-config', profile: 'web', defaultOnly: false, patches: ['w.yml'] })
+    // Only the leading token is the launcher's; later it belongs to the app.
+    expect(parse(['tui', flag])).toMatchObject({ profile: 'tui', args: [flag] })
+    expect(parse(['--patch', 'a.yml', flag])).toMatchObject({ profile: 'tui', args: [flag] })
+    expect(exitCode([flag, '--profile', 'tui'])).toBe(1)
+  })
+
+  it('looks custom profiles up under $DSH_HOME/profiles', () => {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-args-home-'))
+    try {
+      mkdirSync(join(home, 'profiles', 'mine'), { recursive: true })
+      vi.stubEnv('DSH_HOME', home)
+      expect(profileDirectoryExists('mine')).toBe(true)
+      expect(profileDirectoryExists('other')).toBe(false)
+      expect(profileDirectoryExists('..')).toBe(false)
+      expect(profileDirectoryExists('a/b')).toBe(false)
+      expect(parseDshArgs(['mine', 'task'], '1.2.3')).toEqual({ mode: 'profile', profile: 'mine', patches: [], args: ['task'] })
+      expect(parseDshArgs(['other', 'task'], '1.2.3')).toEqual({ mode: 'profile', profile: 'tui', patches: [], args: ['other', 'task'] })
+    } finally {
+      vi.unstubAllEnvs()
+      rmSync(home, { recursive: true, force: true })
     }
   })
 
@@ -75,8 +163,9 @@ describe('parseDshArgs', () => {
     expect(parse(['--profile', 'x', 'plugin', 'add', 'y']))
       .toMatchObject({ mode: 'profile', profile: 'x', args: ['plugin', 'add', 'y'] })
     expect(parse(['headless', 'web'])).toMatchObject({ profile: 'headless', args: ['web'] })
-    expect(exitCode(['--patch', 'a.yml', 'tui'])).toBe(1)
-    expect(exitCode(['--', 'tui'])).toBe(1)
+    // After launcher flags or `--`, a profile name is the chat's prompt.
+    expect(parse(['--patch', 'a.yml', 'tui'])).toMatchObject({ profile: 'tui', args: ['tui'] })
+    expect(parse(['--', 'plugin'])).toMatchObject({ profile: 'tui', args: ['plugin'] })
   })
 
   it.each([
@@ -201,7 +290,6 @@ describe('parseDshArgs', () => {
   })
 
   it.each([
-    ['--dump-config-schema'],
     ['desktop', '--dump-config-schema'],
     ['--profile', 'Desktop', '--dump-config-schema'],
     ['web', '--dump-config-schema', 'task'],
@@ -214,19 +302,18 @@ describe('parseDshArgs', () => {
     expect(exitCode(argv)).toBe(1)
   })
 
-  it('rejects missing profile, removed flags, and contradictory inputs', () => {
-    expect(exitCode([])).toBe(1)
-    expect(exitCode(['--config', 'c.yml'])).toBe(1) // removed
-    expect(exitCode(['-p', 'task'])).toBe(1) // removed
+  it('rejects invalid profile selection and contradictory inputs', () => {
     expect(exitCode(['--profile', ''])).toBe(1)
+    expect(exitCode(['--from-default-profile', 'web'])).toBe(1) // no target to create
+    expect(exitCode(['--patch', 'a.yml', '--from-default-profile', 'web', 'task'])).toBe(1)
     expect(exitCode(['--profile', 'x', '--from-default-profile='])).toBe(1)
     expect(exitCode(['--profile', 'x', '--from-default-profile'])).toBe(1)
     expect(exitCode(['--profile', 'x', '--patch='])).toBe(1)
-    expect(exitCode(['--dump-config'])).toBe(1)
     expect(exitCode(['--profile', 'x', '--dump-config', '--dump-default-config'])).toBe(1)
+    expect(exitCode(['--dump-config', '--dump-default-config'])).toBe(1)
+    expect(exitCode(['--dump-config', 'task'])).toBe(1)
     expect(exitCode(['--profile', 'x', '--dump-default-config', '--patch', 'p.yml'])).toBe(1)
     expect(exitCode(['--profile', 'x', '--dump-config', 'task'])).toBe(1)
-    expect(exitCode(['--bogus'])).toBe(1)
     expect(exitCode(['web', '--dump-config', '--dump-default-config'])).toBe(1)
     expect(exitCode(['web', '--dump-default-config', '--patch', 'w.yml'])).toBe(1)
     expect(exitCode(['web', '--patch='])).toBe(1)
@@ -250,7 +337,14 @@ describe('parseDshArgs', () => {
   it('keeps its own help for an invocation with no app to hand it to', () => {
     const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
     expect(exitCode(['--help'])).toBe(0)
-    expect(stdout.mock.calls.map(([chunk]) => String(chunk)).join('')).not.toContain('help [command]')
+    const help = stdout.mock.calls.map(([chunk]) => String(chunk)).join('')
+    expect(help).not.toContain('help [command]')
+    for (const usage of ['Usage: dsh [options] [chat-args...]', 'dsh --continue', 'dsh --resume [session]', 'dsh --web', 'dsh -- web']) {
+      expect(help).toContain(usage)
+    }
+    // Without a named profile, -h/--help prints the launcher's help; the chat's is `dsh tui --help`.
+    expect(exitCode(['--continue', '--help'])).toBe(0)
+    expect(parse(['tui', '--help'])).toMatchObject({ profile: 'tui', args: ['--help'] })
     expect(exitCode(['-h'])).toBe(0)
     expect(exitCode(['--version'])).toBe(0)
   })

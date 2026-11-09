@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Application terminal",
+    "description": "Application terminal interactive utilisant les mêmes sessions et préréglages d'agent que l'interface Web."
+  }
+}

@@ -96,6 +96,40 @@ async function pollUntil(predicate: () => boolean, timeoutMs = 5_000): Promise<v
 }
 
 describe('bash tool through the agent loop', () => {
+  it('a forced steer releases a real command, then its completion wakes the agent with the output', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-steering-loop-'))
+    dirs.push(dir)
+    let jobId = ''
+    const adapter = new MockAdapter([
+      toolCallResponse('start-work', 'bash', { command: 'printf ready; while [ ! -f release ]; do sleep 0.01; done; printf finished', description: 'Wait for release', workdir: dir }),
+      (options) => {
+        expect(JSON.stringify(options.messages)).toContain('Please handle this first')
+        expect(JSON.stringify(options.messages)).toContain(jobId)
+        return textResponse('I can handle your message while the command runs.')
+      },
+      (options) => {
+        expect(JSON.stringify(options.messages)).toContain('finished [status: completed, exit code: 0]. Output:\\nreadyfinished')
+        return textResponse('The background work is complete; continuing.')
+      },
+    ])
+    const ctx = await harness(adapter)
+    try {
+      const agent = await ctx.agentLoop.create(SessionId('steering-loop'), { provider: 'mock', model: 'mock' }, { cwd: dir })
+      agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Start the command' }] }))
+      await expect.poll(() => ctx.jobs.list(agent.id)[0]?.output.total).toBe(5)
+      jobId = ctx.jobs.list(agent.id)[0]!.id
+      agent.steer(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Please handle this first' }] }))
+      expect(ctx.jobs.releaseWaits(agent.id)).toBe(1)
+      await expect.poll(() => agent.status).toBe('idle')
+      expect(adapter.requests).toHaveLength(2)
+      expect(ctx.jobs.list(agent.id)[0]?.status).toBe('running')
+      writeFileSync(join(dir, 'release'), '')
+      await expect.poll(() => adapter.requests.length).toBe(3)
+      await expect.poll(() => agent.status).toBe('idle')
+      expect(events(agent).filter(event => event.type === 'tool/result')).toHaveLength(1)
+    } finally { await ctx.fiber.dispose() }
+  })
+
   it('logs the real nested shell launch directory after the Session changes directories again', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-nested-bash-cwd-')))
     dirs.push(root)
