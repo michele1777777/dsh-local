@@ -6,7 +6,8 @@ import { selectionOf, windowAround } from './editor.ts'
 import { activeLine, cellWidth, wrapEditor, type VisualLine } from './layout.ts'
 import type { PendingApproval, PendingQuestion } from './interaction.ts'
 import type { ChatState, Picker, PickerRow } from './store.ts'
-import { activity, contextReading, duration, goalPhase, nonnegative, record, sessionIndicators, speedReading, workElapsed } from './metrics.ts'
+import { activity, contextReading, duration, goalPhase, nonnegative, recentSpeed, record, sessionIndicators, speedReading, workElapsed } from './metrics.ts'
+import { SPEED_SAMPLES } from './transcript.ts'
 import { permissionAuditLabel } from './permission-audit.ts'
 import { codeBlocks } from './code-blocks.ts'
 import { COPY_LABEL, markdownRows } from './markdown-layout.ts'
@@ -137,14 +138,19 @@ export function indicatorRow(state: ChatState, width: number): Row | undefined {
  * One status-line entry; while the line is too wide, entries leave in ascending `keep` order. `join` replaces the separator
  * before the entry, binding it to the entry it follows on the same side.
  */
+/** A throughput figure: one decimal below 100 tokens per second, whole numbers above. */
+const rate = (value: number): string => value < 100 ? value.toFixed(1) : String(Math.round(value))
+
 interface StatusEntry { spans: Span[]; keep: number; side: 'left' | 'right'; join?: Span }
 
 /**
  * The status line under the composer. Left: the activity with its status glyph (a running Laya pass shows only its phase
  * label, in the accent tone), the model and effort, the permission preset
- * when it is not the default, background jobs, and the work timer while a turn runs, all muted. Right: the context meter bar,
+ * when it is not the default, background jobs, the work timer while a turn runs, and prefill and decode speed over the latest
+ * {@link SPEED_SAMPLES} model responses, all muted. Right: the context meter bar,
  * usage percentage and token counts, and the `? keys` control. On narrow terminals the separators tighten, then entries leave
- * in this order: the keys control, the model, jobs, the timer, the meter bar, the token counts, the percentage and the preset.
+ * in this order: the keys control, the model, the speeds, jobs, the timer, the meter bar, the token counts, the percentage and the
+ * preset.
  * @param state - chat state supplying status, model selection, permissions and projections.
  * @param width - cells available.
  * @param tick - spinner frame counter.
@@ -172,6 +178,9 @@ export function statusRow(state: ChatState, width: number, tick: number, now: nu
   if (live > 0) entries.push({ side: 'left', keep: 30, spans: [{ ...span(`${live} job${live === 1 ? '' : 's'}`, 'muted'), action: { kind: 'open-jobs' } }] })
   const elapsed = workElapsed(state, now)
   if (elapsed !== undefined) entries.push({ side: 'left', keep: 40, spans: [span(duration(elapsed), 'muted')] })
+  const speed = recentSpeed(state.transcript)
+  const rates = [speed.prefill === undefined ? '' : `prefill ${rate(speed.prefill)}`, speed.decode === undefined ? '' : `decode ${rate(speed.decode)}`].filter(Boolean)
+  if (rates.length > 0) entries.push({ side: 'left', keep: 25, spans: [span(`${rates.join(' · ')} tok/s`, 'muted')] })
   const pressure = contextReading(state.projections)
   const context = pressure.ratio !== undefined && pressure.ratio >= 0.8 ? 'warning' : 'footer'
   if (pressure.ratio === undefined) entries.push({ side: 'right', keep: 90, spans: [span(pressure.label, context)] })
@@ -760,11 +769,16 @@ export function inspectorRows(state: ChatState, panel: ChatState['panel'], comma
     for (const [label, field] of [['Uncached input', 'uncachedInputTokens'], ['Cache read', 'cacheReadTokens'], ['Cache write', 'cacheWriteTokens'], ['Output (includes reasoning)', 'outputTokens']] as const) {
       const value = nonnegative(usage[field]); output.push(...keyValue(label, value === undefined ? '—' : tokens(value), width))
     }
-    output.push(row(''), row(span('Performance · session averages, not live GPU speed', 'accent', true)),
+    const recent = recentSpeed(state.transcript)
+    output.push(row(''), row(span(`Speed · latest ${String(SPEED_SAMPLES)} responses, shown in the status line`, 'accent', true)),
+      ...keyValue('Prefill', recent.prefill === undefined ? '—' : `${rate(recent.prefill)} tok/s`, width),
+      ...keyValue('Decode', recent.decode === undefined ? '—' : `${rate(recent.decode)} tok/s`, width),
+      ...markdownRows(`Summed tokens over summed wall time of the latest ${String(SPEED_SAMPLES)} model responses, so long responses weigh more. Prefill = uncached input tokens / time from step start to the first token; that time also includes request preparation, queueing, transport and any pruning before the request. Decode = output tokens, reasoning included / time from the first token to the committed message.`, width),
+      row(''), row(span('Performance · session averages, not live GPU speed', 'accent', true)),
       ...keyValue('Decode', speed.decode === undefined ? '—' : `${speed.decode.toFixed(2)} tok/s (timed streamed steps)`, width),
       ...keyValue('Time to first token', speed.ttftMs === undefined ? '—' : duration(speed.ttftMs), width),
       ...keyValue('Completed steps / turns', `${shown(stats.steps)} / ${shown(stats.turns)}`, width),
-      ...markdownRows('Decode = timed output tokens / streaming wall time. TTFT is an observed latency and includes transport or scheduling overhead. Prefill speed is not exposed by this core and is deliberately not estimated. Missing measurements remain “—”.', width))
+      ...markdownRows('Decode = timed output tokens / streaming wall time over the whole session. TTFT is an observed latency and includes transport or scheduling overhead. Missing measurements remain “—”.', width))
     const breakdown = record(state.projections.contextBreakdown)
     if (Object.keys(breakdown).length > 0) {
       output.push(row(''), row(span('Context composition · heuristic estimate', 'accent', true)))

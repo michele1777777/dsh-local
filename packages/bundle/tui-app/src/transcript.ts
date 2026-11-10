@@ -12,7 +12,7 @@
  * @module @deepseek-ai/dsh-tui-app/transcript
  */
 
-import type { AssistantStreamRecord, ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
+import { assistantStreamFirstTokenTime, type AssistantStreamRecord, type ContentBlock, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-compaction'
 import type { LayaPhase } from '@deepseek-ai/dsh-compaction-laya-pruner'
@@ -130,6 +130,29 @@ export interface Transcript {
   /** Wall time since the latest admitted human message, including tools and compaction. */
   workStartedAt?: number
   workCompletedAt?: number | undefined
+  /** Time of the latest `step/start`, cleared by the step's assistant message. */
+  stepStartedAt?: number | undefined
+  /** Timings of the latest model responses, oldest first, at most {@link SPEED_SAMPLES}. */
+  speedSamples?: SpeedSample[]
+}
+
+/** How many model responses the speed averages cover. */
+export const SPEED_SAMPLES = 10
+
+/**
+ * Token counts and wall times of one model response, from its log events. Prefill runs from `step/start` to the first streamed
+ * token and covers the uncached input tokens; decode runs from the first token to the committed message and covers the
+ * output tokens, reasoning included.
+ */
+export interface SpeedSample {
+  /** Uncached input tokens the provider reported. */
+  prefillTokens: number
+  /** Milliseconds from `step/start` to the first token. */
+  prefillMs: number
+  /** Output tokens the provider reported. */
+  decodeTokens: number
+  /** Milliseconds from the first token to the committed message. */
+  decodeMs: number
 }
 
 /** Presents tool calls and results through the composed tool registry. */
@@ -293,6 +316,22 @@ export function endStream(t: Transcript, time = Date.now()): void {
   t.liveAssistant = undefined
 }
 
+/** Add the timings of a committed response to the speed samples; a response without a step start, first token or usage adds none. */
+function recordSpeed(
+  t: Transcript, stream: readonly AssistantStreamRecord[], usage: { inputTokens: number; outputTokens: number } | undefined, time: number,
+): void {
+  const started = t.stepStartedAt
+  t.stepStartedAt = undefined
+  const first = assistantStreamFirstTokenTime(stream)
+  if (started === undefined || first === undefined || usage === undefined) return
+  const samples = t.speedSamples ?? []
+  samples.push({
+    prefillTokens: usage.inputTokens, prefillMs: Math.max(0, first - started),
+    decodeTokens: usage.outputTokens, decodeMs: Math.max(0, time - first),
+  })
+  t.speedSamples = samples.slice(-SPEED_SAMPLES)
+}
+
 /**
  * Fold one durable session event.
  * @param t - the transcript.
@@ -323,8 +362,12 @@ export function applyEvent(t: Transcript, event: SessionEvent, present: Presente
       if (text !== '') t.items.push({ kind: 'user', id, text, queued: false, settled: true })
       return
     }
+    case 'step/start':
+      t.stepStartedAt = event.time
+      return
     case 'assistant/message': {
       if (event.surfaceOp !== 'append') return
+      recordSpeed(t, event.data.stream, event.data.usage, event.time)
       const content = event.data.message.content
       const text = textOf(content)
       const reasoning = reasoningOf(content)

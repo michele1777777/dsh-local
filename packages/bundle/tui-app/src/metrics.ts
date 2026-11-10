@@ -34,6 +34,24 @@ export function contextReading(projections: ChatState['projections']): { used?: 
   return { used, maximum, ratio, label: `ctx ~${Math.round(ratio * 100)}% · ${tokens(used)}/${tokens(maximum)}` }
 }
 /**
+ * Prefill and decode throughput over the latest model responses: summed tokens over summed wall time, so long responses
+ * weigh more than short ones.
+ * @param transcript - the transcript holding the speed samples.
+ * @returns tokens per second for each phase; a phase is omitted when no sample measured it.
+ */
+export function recentSpeed(transcript: ChatState['transcript']): { prefill?: number; decode?: number } {
+  const samples = transcript.speedSamples ?? []
+  const rate = (pairs: readonly (readonly [number, number])[]): number | undefined => {
+    const measured = pairs.filter(([tokens, ms]) => tokens > 0 && ms > 0)
+    const ms = measured.reduce((sum, [, value]) => sum + value, 0)
+    return ms === 0 ? undefined : measured.reduce((sum, [tokens]) => sum + tokens, 0) * 1000 / ms
+  }
+  const prefill = rate(samples.map(sample => [sample.prefillTokens, sample.prefillMs] as const))
+  const decode = rate(samples.map(sample => [sample.decodeTokens, sample.decodeMs] as const))
+  return { ...prefill === undefined ? {} : { prefill }, ...decode === undefined ? {} : { decode } }
+}
+
+/**
  * Decode throughput and mean time to first token from the `sessionStats` projection.
  * @param projections - host projections.
  * @param projections.sessionStats - accumulated decode and TTFT totals.
