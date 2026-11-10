@@ -24,7 +24,7 @@ async function click(h,kind,predicate=()=>true){
 }
 const scenarios=[
   ['conversation',108,34,{}],['code-copy',108,34,{}],['copied',108,34,{}],
-  ['tool-split',164,36,{}],['changes',164,36,{panel:'changes'}],
+  ['tool-split',164,36,{}],
   ['permission',164,32,{pending:[approval()]}],['plan-review',154,32,{pending:[question()]}],
   ['sessions',164,32,{picker:{kind:'sessions',title:'Resume a saved session',rows:sessionRows,all:true}}],
   ['narrow',40,24,{}],['context',100,35,{panel:'context'}],['commands',108,32,{}],
@@ -40,7 +40,6 @@ for(const [name,width,height,overrides] of scenarios){
   const h=createHarness(App,store,controller,width,height)
   if(name==='commands')await h.paste('/')
   if(name==='tool-split'){await h.key('',{ctrl:true,home:true});await click(h,'inspect-item',a=>a.itemId==='tool-diff')}
-  if(name==='changes')await h.key('',{ctrl:true,home:true})
   if(name==='copied')await click(h,'copy-code')
   if(name==='sessions'){await new Promise(r=>setTimeout(r,130));await h.flush()}
   const rows=h.rows();h.dispose()

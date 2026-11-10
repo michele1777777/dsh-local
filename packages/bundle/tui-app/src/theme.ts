@@ -1,6 +1,9 @@
 /** Semantic terminal colours. Themes affect presentation, never session config. */
 export type ThemeName = 'dark' | 'light' | 'mono'
-/** Semantic colour role used by rows and spans. */
+/**
+ * Semantic colour role used by rows and spans. `description` is secondary text that is read, such as what a tool call
+ * does, lighter than `muted`, which is for metadata such as durations.
+ */
 export type Tone =
   | 'text'
   | 'muted'
@@ -13,6 +16,7 @@ export type Tone =
   | 'string'
   | 'number'
   | 'comment'
+  | 'description'
   | 'command'
   | 'brand'
   | 'footer'
@@ -53,6 +57,7 @@ const dark: Palette = {
   string: 'green',
   number: 'yellow',
   comment: '#83869b',
+  description: '#b4b9cf',
   command: '#5fafff',
   brand: '#617cfe',
   footer: '#89b4fa',
@@ -84,6 +89,7 @@ const light: Palette = {
   string: '#008700',
   number: '#875f00',
   comment: '#626262',
+  description: '#3f434d',
   command: '#007ac3',
   brand: '#3b5bdb',
   footer: '#1b79cd',

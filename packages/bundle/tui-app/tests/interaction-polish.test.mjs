@@ -12,7 +12,7 @@ const { fixture,tool,approval,question }=await import('./fixtures.mjs')
 const { MOUSE_ON,MOUSE_OFF }=await import('../src/mouse.ts')
 function setup(overrides={},columns=160,height=35){
   const state=fixture(overrides),store=createStore(state),calls={copies:[],images:0,edits:[],commands:[],prompts:[],approvals:[],questions:[],errors:[],cancels:0}
-  const controller={async submit(text){calls.prompts.push(text)},async runCommand(line){calls.commands.push(line);if(line==='/editor')store.update(s=>{s.editorRequest=(s.editorRequest??0)+1})},
+  const controller={async submit(text){calls.prompts.push(text)},async runCommand(line){calls.commands.push(line)},
     async copyText(text){calls.copies.push(text);return {confirmed:true,transport:'test'}},async pasteImage(){calls.images++},async editPrompt(text){calls.edits.push(text);return text+'\nEDITED'},
     cancel(){calls.cancels++},exit(){},commands(){return mergeCommands([])},answerApproval(id,outcome){calls.approvals.push({id,outcome});store.update(s=>{s.pending=s.pending.filter(p=>p.id!==id)})},
     answerQuestion(id,answer){calls.questions.push({id,answer});store.update(s=>{s.pending=s.pending.filter(p=>p.id!==id)})},hint(text){store.update(s=>{s.hint=text})},closePicker(){store.update(s=>{s.picker=undefined})},report(error){calls.errors.push(String(error.message??error))}}
@@ -93,7 +93,7 @@ test('tool click expands its output inline, never in a side pane, and retains th
   try{await h.paste('unsent draft');assert.doesNotMatch(h.text(),/DETAIL-40/)
     // A side pane would join columns with ` │ `; the inline card's rail follows only the margin.
     await click(h,'inspect-item');assert.doesNotMatch(h.text(),/\S │ DETAIL/)
-    await h.key('',{pageUp:true});await h.key('',{pageUp:true});assert.match(h.text(),/^ {2}┃ DETAIL-1\d *$/m)
+    await h.key('',{pageUp:true});await h.key('',{pageUp:true});assert.match(h.text(),/^ {2}┇ DETAIL-1\d *$/m)
     await h.paste(' retained');assert.match(h.text(),/unsent draft retained/)
     // With a draft, plain End edits it; Ctrl+End returns to the latest output.
     await h.key('',{end:true,ctrl:true});assert.match(h.text(),/DETAIL-69/)
@@ -121,10 +121,6 @@ test('Alt+V stages an image explicitly and is disabled inside permission dialogs
 test('Ctrl+G suspends terminal editing, restores the edited draft and never sends it',async()=>{
   const {h,calls}=setup()
   try{await h.paste('Write a script\nwith unicode 東京');await h.key('g',{ctrl:true});await h.flush();assert.deepEqual(calls.edits,['Write a script\nwith unicode 東京']);assert.match(h.text(),/EDITED/);assert.deepEqual(calls.prompts,[]);assert.ok(h.written.includes(MOUSE_ON));assert.ok(h.written.some(s=>s.includes(MOUSE_OFF)))}finally{h.dispose()}
-})
-test('/editor waits for command completion before requesting the terminal handoff',async()=>{
-  const {h,calls}=setup({editorRequest:0})
-  try{await h.paste('/editor');await h.key('',{return:true});await h.flush();assert.deepEqual(calls.commands,['/editor']);assert.deepEqual(calls.edits,['']);assert.match(h.text(),/EDITED/);assert.deepEqual(calls.prompts,[])}finally{h.dispose()}
 })
 test('an editor launch failure keeps the original draft editable',async()=>{
   const {h,controller,calls}=setup()
@@ -332,15 +328,15 @@ test('the goal indicator names the objective first line only, without the round 
   const {h}=setup(goalState(),100,30)
   try{
     const text=h.text()
-    // One muted row under the header; an active goal shows no phase.
-    assert.match(h.text().split('\n')[1],/^◎ Crea un Tetris giocabile nel browser\.$/)
+    // One row under the header, after a blank row; an active goal shows no phase.
+    assert.match(h.text().split('\n')[2],/^◎ Crea un Tetris giocabile nel browser\.$/)
     assert.doesNotMatch(text,/\/256|3\/256|Requisiti|GOAL/)
   }finally{h.dispose()}
   const stopped=setup(goalState('active','disarmed'),100,30)
   try{assert.match(stopped.h.text(),/◎ Crea un Tetris giocabile nel browser\.   paused · \/goal resume/)}finally{stopped.h.dispose()}
   const blocked=setup(goalState('blocked'),100,30)
   try{
-    const detail=blocked.h.rows()[1].spans.find(part=>part.text.includes('blocked'))
+    const detail=blocked.h.rows()[2].spans.find(part=>part.text.includes('blocked'))
     assert.equal(detail?.tone,'warning')
   }finally{blocked.h.dispose()}
 })

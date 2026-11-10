@@ -84,7 +84,7 @@ ObjC.unwrap(d.base64EncodedStringWithOptions(0));`
 export async function readClipboardImage(maxBytes: number, options: ClipboardEnvironment = {}): Promise<ClipboardImage> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new Error('Invalid Web image admission limit')
   const env = options.env ?? process.env, platform = options.platform ?? process.platform, run = options.run ?? runProcess
-  if (remote(env)) throw new Error('Clipboard image paste is not available over SSH. Save the image on the session host and use /image path.')
+  if (remote(env)) throw new Error('Clipboard image paste is not available over SSH.')
   options.signal?.throwIfAborted()
   const requests: { request: ProcessRequest; base64: boolean }[] = []
   if (windowsClipboard(platform, env)) {
@@ -106,5 +106,5 @@ export async function readClipboardImage(maxBytes: number, options: ClipboardEnv
       return { data, mediaType: 'image/png', width: data.readUInt32BE(16), height: data.readUInt32BE(20) }
     } catch (error) { options.signal?.throwIfAborted(); lastError = error }
   }
-  throw new Error(`Cannot paste an image: ${lastError instanceof Error ? lastError.message : 'no local image clipboard adapter; use /image path instead.'}`)
+  throw new Error(`Cannot paste an image: ${lastError instanceof Error ? lastError.message : 'no local image clipboard adapter.'}`)
 }

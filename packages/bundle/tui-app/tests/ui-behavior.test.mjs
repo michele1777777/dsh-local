@@ -10,7 +10,7 @@ const { widthOf, textOfRow }=await import('../src/rich-text.ts')
 const { fixture, conversation, tool, approval, question }=await import('./fixtures.mjs')
 function setup(overrides={},columns=80,height=24){
   const store=createStore(fixture(overrides)),calls={submit:[],commands:[],approvals:[],questions:[],errors:[],cancel:0,exit:0}
-  const controller={async submit(text){calls.submit.push(text)},async runCommand(line){calls.commands.push(line);const name=line.slice(1).split(' ')[0];if(['transcript','diff','context','permissions','help','tasks'].includes(name))store.update(s=>{s.panel=name==='diff'?'changes':name})},
+  const controller={async submit(text){calls.submit.push(text)},async runCommand(line){calls.commands.push(line);const name=line.slice(1).split(' ')[0];if(['context','permissions','help','tasks'].includes(name))store.update(s=>{s.panel=name})},
     cancel(){calls.cancel++},exit(){calls.exit++},commands(){return mergeCommands([{name:'plan',description:'plan with the preset'},{name:'goal',description:'persistent goal'},{name:'compact',description:'compact context'}])},
     answerApproval(id,outcome){calls.approvals.push({id,outcome});store.update(s=>{s.pending=s.pending.filter(p=>p.id!==id)})},
     answerQuestion(id,answer){calls.questions.push({id,answer});store.update(s=>{s.pending=s.pending.filter(p=>p.id!==id)})},
@@ -72,7 +72,7 @@ test('a single-select option chosen after typing custom text drops the text',asy
 }))
 test('transcript focus expands tools and preserves an unsent composer draft',async()=>{
   const t=fixture().transcript;t.items=[tool({result:{card:'terminal',output:Array.from({length:25},(_,i)=>`UNIQUE-${i}`).join('\n'),exitCode:0}})]
-  const {h,store,calls}=setup({transcript:t});try{await h.paste('draft');await h.key('o',{ctrl:true});assert.equal(store.getState().panel,'transcript');await h.key('',{home:true,ctrl:true});assert.match(h.text(),/▾ ✓ Run {4}pnpm test --filter auth/);await h.key('',{downArrow:true,shift:true});await h.key('',{downArrow:true,shift:true});assert.match(h.text(),/UNIQUE-0/);await h.key('',{return:true});assert.equal(calls.submit.length,0);await h.key('',{escape:true});assert.match(h.text(),/draft/)}finally{h.dispose()}
+  const {h,store,calls}=setup({transcript:t});try{await h.paste('draft');await h.key('o',{ctrl:true});assert.equal(store.getState().panel,'transcript');await h.key('',{home:true,ctrl:true});assert.match(h.text(),/▾ • Run {4}pnpm test --filter auth/);await h.key('',{downArrow:true,shift:true});await h.key('',{downArrow:true,shift:true});assert.match(h.text(),/UNIQUE-0/);await h.key('',{return:true});assert.equal(calls.submit.length,0);await h.key('',{escape:true});assert.match(h.text(),/draft/)}finally{h.dispose()}
 })
 test('search reaches reasoning and unfolded tool output',async()=>{
   const t=fixture().transcript;t.items=conversation();const {h}=setup({transcript:t});try{await h.key('f',{ctrl:true});await h.paste('expiresAt');await h.key('',{return:true});assert.match(h.text(),/expiresAt/);assert.match(h.text(),/^⌕ expiresAt +1 of 1 {3}n · N next · previous · Esc close $/mu);
@@ -87,7 +87,7 @@ test('Escape closes an inspector before interrupting a running turn',async()=>{
 })
 for(const [columns,height] of [[29,12],[40,16],[80,24],[120,40]])test(`complete App frames remain bounded at ${columns}x${height}`,async()=>{
   const t=fixture().transcript;t.items=conversation()
-  const states=[{transcript:t},{transcript:t,status:'running',pending:[approval()]},{transcript:t,pending:[question()]},{panel:'help'},{panel:'context'},{panel:'permissions'},{panel:'tasks'},{transcript:t,panel:'changes'},{transcript:t,panel:'transcript'},
+  const states=[{transcript:t},{transcript:t,status:'running',pending:[approval()]},{transcript:t,pending:[question()]},{panel:'help'},{panel:'context'},{panel:'permissions'},{panel:'tasks'},{transcript:t,panel:'transcript'},
     {picker:{kind:'sessions',title:'Resume',rows:Array.from({length:30},(_,i)=>({id:`s${i}`,label:`Session ${i} `.repeat(10),detail:'Long detail '.repeat(20),command:`/resume s${i}`}))}}]
   for(const state of states){const {h}=setup(state,columns,height);try{assert.equal(h.rows().length,height);for(const line of h.rows())assert.ok(widthOf(textOfRow(line))<=columns-1);await h.key('',{pageDown:true});h.resize(columns+10,height+3);assert.equal(h.rows().length,height+3)}finally{h.dispose()}}
 })

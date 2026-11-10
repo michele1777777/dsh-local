@@ -83,6 +83,10 @@
 - id: command-goal
   disabled: true
 
+# Feedback capture belongs to the Web dialog; the terminal offers no /feedback.
+- id: command-feedback
+  disabled: true
+
 - id: tool-goal
   disabled: true
 

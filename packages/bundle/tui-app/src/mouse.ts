@@ -8,7 +8,7 @@
  * its release as their own escape sequences. Drag motion is what lets this
  * application draw and copy a selection itself, which is the trade for the
  * terminal's own selection: most terminals still select with Shift held, and
- * `/mouse off` restores the terminal's handling for the rest of the session.
+ * `DSH_TUI_MOUSE=off` leaves the mouse to the terminal for the whole session.
  * @module @deepseek-ai/dsh-tui-app/mouse
  */
 

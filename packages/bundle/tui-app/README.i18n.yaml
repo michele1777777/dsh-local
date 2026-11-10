@@ -21,35 +21,35 @@
   en: 0c407eb2bf138f2f
   zh: 613816a823eaa25a
 /deepseek-ai-dsh-tui-app/use-this-package/screen-and-mouse:
-  en: 15baacdaa9e1c107
-  zh: 1ebb5f47ab346c88
+  en: 037282efb279f085
+  zh: 52365aea6809ea88
 /deepseek-ai-dsh-tui-app/use-this-package/conversation-display:
-  en: ab01bbc3e7c1ba76
-  zh: b1d055dc031d9f80
+  en: 193e22730063f832
+  zh: 222bce5a12f567a4
 /deepseek-ai-dsh-tui-app/use-this-package/composer-and-keyboard:
-  en: b8f958c02c0c45d0
-  zh: 9de00e8669b5735a
+  en: eda2706487c17a8b
+  zh: bf4ad67236e8763c
 /deepseek-ai-dsh-tui-app/use-this-package/steering-and-queueing:
-  en: 9ca3ad7e15bd9329
-  zh: b848359d83155056
+  en: 8f86fc80bfdf8961
+  zh: 73828252c66f434e
 /deepseek-ai-dsh-tui-app/use-this-package/pasting-and-prompt-history:
   en: 70108591c1d236ce
   zh: ca9321009b7461f4
 /deepseek-ai-dsh-tui-app/use-this-package/slash-commands:
-  en: d78495420caab604
-  zh: 02186e8bd2317454
+  en: e6a19e27cd1abf03
+  zh: b2753eaf22e2d6e6
 /deepseek-ai-dsh-tui-app/use-this-package/recorded-changes:
-  en: 4029daa7bc9de1a4
-  zh: 2f590a9a780696bd
+  en: 56fedba8e010bf18
+  zh: aec47cc412ecfe5f
 /deepseek-ai-dsh-tui-app/use-this-package/copy-links-images-and-local-editing:
-  en: 05a1eb955132ce0d
-  zh: 18c7e4f27dff0a65
+  en: 9b3fd8ebf4bb456f
+  zh: fa2129d50afd0df4
 /deepseek-ai-dsh-tui-app/use-this-package/text-selection:
   en: 1d2e5b9f39226b7b
   zh: 315f2714428ae3e2
 /deepseek-ai-dsh-tui-app/use-this-package/panels-and-attention:
-  en: 9d815ac85cab4c31
-  zh: a9cc8fc1506d0b30
+  en: 45fdc7e6122197e3
+  zh: 3158cdf273162e46
 /deepseek-ai-dsh-tui-app/use-this-package/permissions-and-interactive-questions:
   en: 5d0a2fb44e06a27a
   zh: 424eda15dbc83a71
@@ -60,8 +60,8 @@
   en: d12080e20a533b3f
   zh: 1eccdf7c9c02401c
 /deepseek-ai-dsh-tui-app/use-this-package/background-jobs:
-  en: 59cd018d76b70481
-  zh: 7bcd9ba9c11835ce
+  en: 5a57ba0921e015ed
+  zh: 64da0717a794c2b1
 /deepseek-ai-dsh-tui-app/use-this-package/context-activity-and-performance:
   en: 5a7275d354e83ee6
   zh: 56582699336bbd3f
@@ -132,8 +132,8 @@
   en: a7d4520bfb415209
   zh: 75150979365e70c8
 /deepseek-ai-dsh-tui-app/known-limitations-and-deferred-work:
-  en: 133d77896a1d7aac
-  zh: db2b9013206ee335
+  en: 7194c6c57cbddf69
+  zh: 8906eef6e06a5ee6
 /deepseek-ai-dsh-tui-app/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: e88aeb617ffb74ea

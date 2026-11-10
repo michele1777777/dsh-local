@@ -5,7 +5,9 @@ const source = path => readFileSync(new URL(path, import.meta.url), 'utf8')
 test('TUI disables exactly the same global agent plane as Web and enables presets', () => {
   const tui = source('../cordis.patch.yml'), web = source('../../web-app/cordis.patch.yml')
   const disabled = text => [...text.matchAll(/^- id: ([^\n]+)\n  disabled: true/gm)].map(match => match[1]).sort()
-  assert.deepEqual(disabled(tui), disabled(web.slice(web.indexOf('- id: tool-bash'))))
+  // The terminal also drops /feedback, a surface command outside the agent plane.
+  assert.ok(disabled(tui).includes('command-feedback'))
+  assert.deepEqual(disabled(tui).filter(id => id !== 'command-feedback'), disabled(web.slice(web.indexOf('- id: tool-bash'))))
   assert.match(tui, /name: '@deepseek-ai\/dsh-api-session-controller'/)
   assert.match(tui, /name: '@deepseek-ai\/dsh-api-job-controller'/)
   assert.match(tui, /name: '@deepseek-ai\/dsh-agent-preset-registry'[\s\S]*default: standard/)

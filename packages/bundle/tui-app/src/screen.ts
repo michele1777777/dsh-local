@@ -12,7 +12,7 @@ import { SPEED_SAMPLES } from './transcript.ts'
 import { permissionAuditLabel } from './permission-audit.ts'
 import { codeBlocks } from './code-blocks.ts'
 import { COPY_LABEL, markdownRows } from './markdown-layout.ts'
-import { BOX_MIN_WIDTH, boxBottom, boxLine, boxTop, fitRow, indentRows, onBackground, padText, row, rule, span, textOfRow, twoSides, widthOf, wrapProse, wrapRow, type Row, type Span } from './rich-text.ts'
+import { BOX_MIN_WIDTH, boxBottom, boxLine, boxTop, fitRow, indentRows, onBackground, padText, row, rule, span, STATUS_DOT, textOfRow, twoSides, widthOf, wrapProse, wrapRow, type Row, type Span } from './rich-text.ts'
 import { contentSummary, jsonText, safeText, tokens } from './terminal.ts'
 
 /**
@@ -423,7 +423,7 @@ export function paletteRows(view: PaletteView, index: number, tab: PaletteTab, w
     const name = row(span(`/${entry.name}`, 'command', chosen), ...hint)
     const kind = kinds ? [span(padText(commandKind(entry), KIND_CELLS), 'muted')] : []
     const line = fitRow(row(span(chosen ? '❯ ' : '  ', 'accent', chosen), ...name.spans, span(' '.repeat(Math.max(0, nameWidth - widthOf(textOfRow(name))) + 2)),
-      ...kind, span(entry.description, chosen ? 'text' : 'muted')), width)
+      ...kind, span(entry.description, chosen ? 'text' : 'description')), width)
     // The chosen command stands on the selection background across the whole row.
     const painted = chosen ? onBackground(line, width, 'select') : line
     return { ...painted, spans: painted.spans.map(part => ({ ...part, action: { kind: 'command-complete' as const, name: entry.name } })) }
@@ -770,7 +770,7 @@ export function questionControls(pending: PendingQuestion, draft: QuestionDraft,
     const label = fitRow(row(span(safeText(option.label), 'text', focused)), labelCells)
     const line = fitRow(row(span(' '), span(picked ? '●' : '○', picked || focused ? 'accent' : 'comment'), span(` ${at + 1}  `, 'comment'),
       ...label.spans, span(' '.repeat(labelCells - widthOf(textOfRow(label)) + 2)),
-      span(safeText(option.description ?? '').replace(/\s+/gu, ' '), 'muted')), width)
+      span(safeText(option.description ?? '').replace(/\s+/gu, ' '), 'description')), width)
     const painted = focused ? onBackground(line, width, 'select') : line
     output.push({ ...painted, spans: painted.spans.map(part => ({ ...part, action: { kind: 'question-option' as const, index: at } })) })
   }
@@ -818,7 +818,7 @@ export function pickerCard(picker: Picker, rows: readonly PickerRow[], search: E
     const focused = position + visible.offset === index, end = entry.current === true ? 'current ' : ''
     const label = fitRow(row(span(safeText(entry.label), 'text', focused)), labelCells)
     const line = fitRow(row(span(focused ? '❯ ' : '  ', 'accent', true), span(entry.current === true ? '● ' : '  ', 'accent'), ...label.spans,
-      span(' '.repeat(labelCells - widthOf(textOfRow(label)) + 2)), span(safeText(entry.detail).replace(/\s+/gu, ' '), 'muted')), Math.max(0, inner - widthOf(end) - 1))
+      span(' '.repeat(labelCells - widthOf(textOfRow(label)) + 2)), span(safeText(entry.detail).replace(/\s+/gu, ' '), 'description')), Math.max(0, inner - widthOf(end) - 1))
     const whole = row(...line.spans, span(' '.repeat(inner - widthOf(textOfRow(line)) - widthOf(end))), span(end, 'comment'))
     const painted = focused ? onBackground(whole, inner, 'select') : whole
     body.push({ ...painted, spans: painted.spans.map(part => ({ ...part, action: { kind: 'picker-select' as const, id: entry.id } })) })
@@ -842,7 +842,7 @@ function keyValue(key: string, value: unknown, width: number): Row[] { return wr
 type Job = ChatState['jobs'][number]
 const liveJob = (job: Job): boolean => job.status === 'running' || job.status === 'stopping'
 const JOB_GLYPHS = {
-  running: span('◌', 'accent'), stopping: span('◌', 'warning'), completed: span('✓', 'success'), failed: span('×', 'error'), killed: span('–', 'warning'),
+  running: span('◌', 'accent'), stopping: span('◌', 'warning'), completed: span(STATUS_DOT, 'success'), failed: span(STATUS_DOT, 'error'), killed: span(STATUS_DOT, 'warning'),
 } satisfies Record<Job['status'], Span>
 
 /** The description the model gave the tool call that started each job, keyed by job id; jobs without one are absent. */
@@ -965,7 +965,7 @@ export function inspectorRows(state: ChatState, panel: ChatState['panel'], comma
     output.push(...keyTable(width), heading('Details'), ...markdownRows([
       'Enter: send · Alt/Shift+Enter or Ctrl+J: newline (terminal support varies) · ? on an empty prompt: the main keys above the composer, until Esc or the next key.',
       '/ opens the command palette: ↑↓ choose, Tab completes, Enter runs; ←→ at the end of the query switch between All, Agent, Skills and Terminal.',
-      'While a turn runs, Enter steers it: the agent reads the message at its next step. Tab (or /queue add text) holds it for the next turn instead.',
+      'While a turn runs, Enter steers it: the agent reads the message at its next step. Tab holds it for the next turn instead.',
       'Enter on an empty prompt sends pending messages now: a running command moves to the background and the agent is told when it finishes; any other work is interrupted. Ctrl+Enter sends a draft immediately when the terminal distinguishes it.',
       'Interrupting a turn starts your queued messages next; interrupting them as well keeps the rest queued.',
       'PgUp/PgDn: scroll conversation · Shift+↑/↓: scroll one line · End or click [↓ Back to bottom]: jump to latest.',
@@ -977,8 +977,8 @@ export function inspectorRows(state: ChatState, panel: ChatState['panel'], comma
       'Ctrl+R: search prompt history · Ctrl+S: stash/restore a draft.',
       'Click Copy on a code block: copy exact code · /copy: last answer · /copy code: last code block.',
       'Click × at the end of a queued message or on a staged file in the composer rule to remove it.',
-      'Ctrl+G or /editor: edit the prompt in VISUAL/EDITOR · never auto-sends.',
-      'Alt+V or /paste-image: stage a clipboard image for the next prompt.',
+      'Ctrl+G: edit the prompt in VISUAL/EDITOR · never auto-sends.',
+      'Alt+V: stage a clipboard image for the next prompt.',
       '/resume searches saved content in-page; previewing never activates a session.',
       'Click the permission preset in the status line, shown when it is not the default, or use /permission to choose the current session preset.',
       'Esc: close a panel first, otherwise interrupt a running turn.',
@@ -1057,7 +1057,7 @@ export function inspectorRows(state: ChatState, panel: ChatState['panel'], comma
         const note = finished ? 'done' : active ? 'in progress' : task.status === 'pending' ? '' : shown(task.status, 'unknown')
         const lines = wrapProse(row(span(shown(task.content, ''), finished ? 'muted' : 'text', active)), Math.max(1, width - 7 - widthOf(note)))
         lines.forEach((line, index) => {
-          const left = row(span(index === 0 ? `  ${finished ? '✓' : active ? '◐' : '○'}  ` : '     ', finished ? 'success' : active ? 'accent' : 'muted'), ...line.spans)
+          const left = row(span(index === 0 ? `  ${finished ? STATUS_DOT : active ? '◐' : '○'}  ` : '     ', finished ? 'success' : active ? 'accent' : 'muted'), ...line.spans)
           output.push(index === 0 && note !== '' ? ended(left, note, width) : left)
         })
       }
@@ -1072,7 +1072,7 @@ export function inspectorRows(state: ChatState, panel: ChatState['panel'], comma
         span(padText(item.placement === 'steering' ? 'this turn' : item.placement === 'context' ? 'context' : 'next turn', QUEUE_TAG_CELLS), 'muted'),
         span(safeText(contentSummary(item.message.content)).replace(/\s+/gu, ' '), 'text')), width)))
     }
-    output.push(row(''), ...markdownRows('Use the existing /goal, /plan and /queue commands to act. /queue remove N, /queue steer N and /queue edit N text use the shared controller. The checklist is the same current todos projection shown by Web; historical lists remain in the transcript.', width))
+    output.push(row(''), ...markdownRows('Use the existing /goal and /plan commands to act; × beside a queued message in the composer removes it. The checklist is the same current todos projection shown by Web; historical lists remain in the transcript.', width))
   } else {
     const pressure = contextReading(state.projections), speed = speedReading(state.projections)
     const usage = record(state.projections.tokenUsage), stats = record(state.projections.sessionStats)
