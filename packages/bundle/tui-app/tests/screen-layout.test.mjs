@@ -39,24 +39,46 @@ async function click(h, predicate) {
   assert.fail(`no visible target in:\n${h.text()}`)
 }
 
-test('collapsed tool calls are single rows without borders: glyph, muted verb, target, note and right-aligned duration', () => {
+test('collapsed tool calls are single rows in three columns: command, muted description, and the duration at the right edge', () => {
   const rows = createDocumentRenderer().render(conversation().slice(2, 5), { width: 100, expanded: false, overrides: {} })
-  // One blank row above the run, none between consecutive calls; durations end at the 80-cell measure after the margin.
+  // One blank row above the run, none between consecutive calls; every row reaches the right edge of the frame.
   assert.equal(textOfRow(rows[0]), '')
   assert.match(textOfRow(rows[1]), /^ {2}✓ Read src\/auth\.ts +1\.8s$/)
-  assert.match(textOfRow(rows[2]), /^ {2}✓ Edit src\/auth\.ts {2}\+2 −1 +1\.8s$/)
-  assert.match(textOfRow(rows[3]), /^ {2}✓ Run pnpm test --filter auth {2}· 2 tests passed +1\.8s$/)
-  assert.ok(rows.slice(1).every(value => widthOf(textOfRow(value)) === 82))
+  assert.match(textOfRow(rows[2]), /^ {2}✓ Edit src\/auth\.ts +\+2 −1 +1\.8s$/)
+  assert.match(textOfRow(rows[3]), /^ {2}✓ Run pnpm test --filter auth {2}2 tests passed +1\.8s$/)
+  assert.ok(rows.slice(1).every(value => widthOf(textOfRow(value)) === 100))
+  // The descriptions of consecutive calls share one column, two cells after the widest command.
+  assert.equal(textOfRow(rows[2]).indexOf('+2 −1'), textOfRow(rows[3]).indexOf('2 tests passed'))
+  assert.equal(textOfRow(rows[3]).indexOf('2 tests passed'), 2 + widthOf('✓ Run pnpm test --filter auth') + 2)
   assert.equal(rows.length, 4)
-  assert.doesNotMatch(text(rows), /[╭╮╰╯│]|CMD|READ|EDIT/u)
+  assert.doesNotMatch(text(rows), /[╭╮╰╯│·|]|CMD|READ|EDIT/u)
   const run = rows[3]
   assert.equal(run.spans.find(part => part.text === '✓')?.tone, 'success')
   assert.equal(run.spans.find(part => part.text === ' Run')?.tone, 'muted')
+  assert.equal(run.spans.find(part => part.text === '2 tests passed')?.tone, 'muted')
+  assert.equal(run.spans.find(part => part.text === '1.8s')?.tone, 'muted')
   assert.ok(run.spans.every(part => part.action?.kind === 'inspect-item' && part.action.itemId === 'tool-1'))
+  // Alone, a call starts its description two cells after its own command.
+  assert.match(textOfRow(itemRows(conversation()[3], { width: 100, expanded: false, overrides: {} })[1]), /^ {2}✓ Edit src\/auth\.ts {2}\+2 −1 +1\.8s$/)
   // A running call keeps its glyph in the accent tone, never the warning tone; an expanded one is the bordered card.
   const running = itemRows(tool({ settled: false, completedAt: undefined, result: undefined }), { width: 100, expanded: false, overrides: {} })
   assert.equal(running[1].spans.find(part => part.text === '◌')?.tone, 'accent')
   assert.match(text(itemRows(tool(), { width: 100, expanded: false, overrides: { 'tool-1': true } })), /╭─ ▾ ✓ CMD pnpm test --filter auth/)
+})
+
+test('a narrowing tool row cuts the description first, then the command, and keeps the duration', () => {
+  const long = tool({ call: { card: 'terminal', title: 'pnpm exec oxlint packages/core/src/auth.ts --deny-warnings', description: 'Lint' },
+    result: { card: 'terminal', output: 'Found 0 warnings and 0 errors in 2 files.', exitCode: 0 } })
+  const at = width => textOfRow(itemRows(long, { width, expanded: false, overrides: {} })[1])
+  assert.equal(at(200), `  ✓ Run pnpm exec oxlint packages/core/src/auth.ts --deny-warnings  Found 0 warnings and 0 errors in 2 files.${' '.repeat(87)}1.8s`)
+  assert.match(at(90), /^ {2}✓ Run pnpm exec oxlint packages\/core\/src\/auth\.ts --deny-warnings {2}Found 0 warning… {2}1\.8s$/u)
+  // Below six cells the description leaves; then the command takes the ellipsis.
+  assert.match(at(76), /^ {2}✓ Run pnpm exec oxlint packages\/core\/src\/auth\.ts --deny-warnings +1\.8s$/u)
+  assert.match(at(40), /^ {2}✓ Run pnpm exec oxlint packages… {2}1\.8s$/u)
+  for (const width of [12, 20, 40, 76, 90, 200]) assert.equal(widthOf(at(width)), width)
+  // A shared column never starts past 60% of the content width, so one long command does not push every description away.
+  const rows = createDocumentRenderer().render([conversation()[3], long], { width: 100, expanded: false, overrides: {} })
+  assert.equal(textOfRow(rows[1]).indexOf('+2 −1'), 2 + Math.floor(98 * 0.6))
 })
 
 test('messages share the two-cell margin: › and ● mark the first rows, and notices get a blank row', () => {
@@ -345,26 +367,28 @@ test('the status line keeps the context bar and numbers longest: keys, model, jo
   assert.ok(timed.every(value => !value.includes('1m 0s') ? !value.includes('1 job') : true))
 })
 
-test('a folded settled thought is one row in the tool columns and opens into the card; live reasoning keeps its box', () => {
+test('a folded settled thought is one row in the tool columns and opens into the card; live reasoning keeps its label', () => {
   const thought = { kind: 'assistant', id: 'th', reasoning: 'plan the change\ncheck the tests', text: '', settled: true, reasoningStartedAt: 1000, reasoningEndedAt: 3500 }
   const rows = itemRows(thought, { width: 100, expanded: false, overrides: {} })
-  assert.deepEqual(rows.map(textOfRow), ['', `  ◦ Thought · 2 lines${' '.repeat(57)}2.5s`])
+  assert.deepEqual(rows.map(textOfRow), ['', `  ◦ Thought  2 lines${' '.repeat(76)}2.5s`])
   const line = rows[1]
   assert.ok(line.spans.slice(1).every(part => part.action?.kind === 'toggle-reasoning' && part.action.itemId === 'th'))
   assert.equal(line.spans.find(part => part.text.startsWith('◦'))?.tone, 'reasoning')
   assert.equal(line.spans.find(part => part.text.includes('2 lines'))?.tone, 'muted')
   // No timestamps: no duration and no placeholder.
   const untimed = itemRows({ ...thought, reasoningStartedAt: undefined, reasoningEndedAt: undefined }, { width: 100, expanded: false, overrides: {} })
-  assert.equal(textOfRow(untimed[1]).trimEnd(), '  ◦ Thought · 2 lines')
+  assert.equal(textOfRow(untimed[1]).trimEnd(), '  ◦ Thought  2 lines')
   const opened = itemRows({ ...thought, reasoningStartedAt: undefined, reasoningEndedAt: undefined }, { width: 100, expanded: false, overrides: { 'reasoning:th': true } })
   assert.match(textOfRow(opened[1]), /^ {2}╭─ ▾ Thought · 2 lines ─+╮$/u)
   assert.doesNotMatch(text(opened), /—/)
-  // A thought followed by tool calls forms one list; an answer after a thought keeps the thought row above its ● row.
+  // A thought followed by tool calls forms one list whose descriptions share a column; an answer after a thought keeps the
+  // thought row above its ● row.
   const listed = createDocumentRenderer().render([thought, tool()], { width: 100, expanded: false, overrides: {} })
-  assert.deepEqual(listed.map(value => textOfRow(value).trim().split(/ {2,}/u)[0]), ['', '◦ Thought · 2 lines', '✓ Run pnpm test --filter auth'])
+  assert.deepEqual(listed.map(value => textOfRow(value).trim().split(/ {2,}/u)[0]), ['', '◦ Thought', '✓ Run pnpm test --filter auth'])
+  assert.equal(textOfRow(listed[1]).indexOf('2 lines'), textOfRow(listed[2]).indexOf('2 tests passed'))
   const answered = itemRows({ ...thought, text: 'Done.' }, { width: 100, expanded: false, overrides: {} })
-  assert.deepEqual(answered.map(value => textOfRow(value).trimEnd()), ['', '  ◦ Thought · 2 lines' + ' '.repeat(57) + '2.5s', '● Done.'])
-  // Still thinking, the open box with its live label stays.
+  assert.deepEqual(answered.map(value => textOfRow(value).trimEnd()), ['', '  ◦ Thought  2 lines' + ' '.repeat(76) + '2.5s', '● Done.'])
+  // Still thinking, the live label stays.
   const live = itemRows({ ...thought, settled: false, reasoningEndedAt: undefined }, { width: 100, expanded: false, overrides: {}, tick: 0, now: 5000 })
   assert.match(textOfRow(live[1]), /Thinking… · 4s · 2 lines/)
 })

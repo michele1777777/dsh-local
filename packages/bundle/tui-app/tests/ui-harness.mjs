@@ -2,8 +2,7 @@
  * Small deterministic hook harness for App's input state machine.
  * This is NOT React/Ink/Yoga and cannot validate real terminal painting.
  */
-import { WHALE_ASSETS, WhaleAnimations } from '../src/whale.ts'
-import { LAYA_ASSETS, LayaAnimations } from '../src/laya.ts'
+import { ANIMATION_ASSETS, SceneAnimations } from '../src/animation.ts'
 let active
 export const jsx = (type, props, key) => ({type,props,key})
 export const jsxs = jsx
@@ -23,12 +22,11 @@ export function useInput(handler){active.input=handler}
 export function usePaste(handler){active.pasteHandler=handler}
 export function useWindowSize(){return {columns:active.columns,rows:active.height}}
 export function useStdout(){const h=active;return {stdout:h.stdout,write(text){h.written.push(text)}}}
-// One validated set of packaged scene assets for every harness; an unusable asset fails the test that renders it.
-const sharedWhales=new WhaleAnimations(WHALE_ASSETS,error=>{throw error})
-const sharedLaya=new LayaAnimations(LAYA_ASSETS,error=>{throw error})
-export function createHarness(App,store,controller,columns=80,height=24,terminal,whales=sharedWhales,laya=sharedLaya){
+// One validated set of packaged animations for every harness; an unusable asset fails the test that renders it.
+const sharedAnimations=new SceneAnimations(ANIMATION_ASSETS,error=>{throw error})
+export function createHarness(App,store,controller,columns=80,height=24,terminal,animations=sharedAnimations){
   const h={slots:[],cursor:0,effects:[],dirty:true,columns,height,input:undefined,pasteHandler:undefined,frame:undefined,written:[],stdout:{write(text){h.written.push(text)}},
-    render(){let rounds=0;do{if(++rounds>30)throw Error('Hook harness rerender loop');h.cursor=0;h.effects=[];h.dirty=false;active=h;h.frame=App({store,controller,terminal,whales,laya});active=undefined;for(const effect of h.effects)effect()}while(h.dirty);return h.frame},
+    render(){let rounds=0;do{if(++rounds>30)throw Error('Hook harness rerender loop');h.cursor=0;h.effects=[];h.dirty=false;active=h;h.frame=App({store,controller,terminal,animations});active=undefined;for(const effect of h.effects)effect()}while(h.dirty);return h.frame},
     async flush(){for(let i=0;i<6;i++){await Promise.resolve();if(h.dirty)h.render()}return h.frame},
     async key(input='',key={}){h.input(input,{eventType:'press',...key});h.render();return h.flush()},
     async paste(text){h.pasteHandler(text);h.render();return h.flush()},

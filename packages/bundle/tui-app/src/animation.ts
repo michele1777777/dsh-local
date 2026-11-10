@@ -1,54 +1,45 @@
 /**
- * Pre-rendered scene animations: the packaged asset format, its validation, size selection and frame timing.
+ * The three pre-rendered braille animations of the TUI: the packaged asset format, its validation and frame timing.
  *
- * Each variant is a gzip JSON file rendered outside the TUI: `frames` holds `fps × durationMs / 1000` frames of `rows` rows,
- * each row a list of `{ text, tone }` spans covering exactly `columns` cells with one theme tone per cell. Glyphs are spaces,
- * block elements and braille patterns, one cell each. A variant is drawn for a terminal four columns wider than its scene.
+ * Each asset is a gzip JSON file rendered outside the TUI: `frames` holds `fps × durationMs / 1000` frames of `rows` rows,
+ * each row a list of `{ text, tone }` spans covering exactly `columns` cells with one theme tone per cell. Glyphs are spaces
+ * and braille patterns, one cell each.
  * @module @deepseek-ai/dsh-tui-app/animation
  */
 import { readFileSync } from 'node:fs'
 import { gunzipSync } from 'node:zlib'
-import { span, type Row, type Span } from './rich-text.ts'
+import type { Row, Span } from './rich-text.ts'
 import { palette, type Tone } from './theme.ts'
 
 /** Milliseconds between steps of the shared animation tick. */
 export const ANIMATION_TICK_MS = 100
 
-/** Columns a variant needs beyond its scene: each was drawn for a terminal four columns wider than the scene. */
-export const SCENE_FRAME_COLUMNS = 4
+/** The packaged animations: `assets/anim/` beside `src/` in a checkout and beside `lib/` in a build. */
+export const ANIMATION_ASSETS = new URL('../assets/anim/', import.meta.url)
 
-/** A packaged animation file and the scene size it must declare. */
-export interface SceneVariant {
+/** A packaged animation file and the size it must declare. */
+export interface Scene {
   /** File name inside the asset directory. */
   readonly file: string
-  /** Scene width in terminal cells. */
+  /** Width in terminal cells. */
   readonly columns: number
-  /** Scene height in terminal rows. */
+  /** Height in terminal rows. */
   readonly rows: number
 }
 
-/** Cells a scene may cover. */
-export interface SceneSpace {
-  /** Most columns the scene may take. */
-  readonly columns: number
-  /** Most rows the scene may take. */
-  readonly rows: number
-}
+/** The welcome whale: two clouds of dots that gather into a humpback and scatter again in a 6.4-second loop. */
+export const WELCOME_SCENE: Scene = { file: 'welcome-whale.json.gz', columns: 60, rows: 15 }
+/** The frame shown with motion off: the whale fully formed, eye open, without the reflection or the spout. */
+export const WELCOME_STILL_FRAME = 44
+/** The Thinking mark: pulses cascading through twelve nodes on three rows in a 6.4-second loop. */
+export const THINKING_SCENE: Scene = { file: 'thinking-synapse.json.gz', columns: 12, rows: 3 }
+/** The Laya pruning mark: grains read by a scanner on a dotted barrier, kept or crumbled, in a 4.8-second loop. */
+export const PRUNING_SCENE: Scene = { file: 'pruning-sieve.json.gz', columns: 10, rows: 3 }
 
-/**
- * The largest variant whose scene fits.
- * @param variants - candidates, largest first.
- * @param space - the columns and rows available.
- * @returns the first of `variants` no wider and no taller than `space`, or undefined when none fits.
- */
-export function fitSceneVariant<V extends SceneVariant>(variants: readonly V[], space: SceneSpace): V | undefined {
-  return variants.find(variant => variant.columns <= space.columns && variant.rows <= space.rows)
-}
-
-/** A validated animation: `frames[i]` holds `variant.rows` rows of exactly `variant.columns` cells. */
+/** A validated animation: `frames[i]` holds `scene.rows` rows of exactly `scene.columns` cells. */
 export interface SceneAnimation {
-  /** The variant the file declared and was checked against. */
-  readonly variant: SceneVariant
+  /** The scene the file declared and was checked against. */
+  readonly scene: Scene
   /** Frames per second of animation time. */
   readonly fps: number
   /** Length of one cycle in milliseconds. */
@@ -57,51 +48,46 @@ export interface SceneAnimation {
   readonly frames: readonly (readonly Row[])[]
 }
 
-/** An unusable scene asset: unreadable, not gzip JSON, or not the declared animation. */
+/** An unusable animation asset: unreadable, not gzip JSON, or not the declared animation. */
 export class SceneAssetError extends Error {
   /**
-   * @param subject - what the animation shows, capitalised, such as `Whale`.
    * @param file - the asset file name.
    * @param problem - what is wrong with it.
    * @param options - the underlying failure, when there is one.
    */
-  constructor(readonly subject: string, readonly file: string, readonly problem: string, options?: ErrorOptions) {
-    super(`${subject} animation ${file} is unusable: ${problem}. The TUI shows no animation in its place; reinstall @deepseek-ai/dsh-tui-app to restore it.`, options)
+  constructor(readonly file: string, readonly problem: string, options?: ErrorOptions) {
+    super(`Animation ${file} is unusable: ${problem}. The TUI shows no animation in its place; reinstall @deepseek-ai/dsh-tui-app to restore it.`, options)
     this.name = 'SceneAssetError'
   }
 }
 
-/** Builds the error that reports one unusable file of a scene set. */
-export type SceneFailure = (file: string, problem: string, options?: ErrorOptions) => SceneAssetError
-
-/** One cell per code point: spaces, block elements and braille patterns. */
-const SCENE_GLYPHS = /^[ ▀-▟⠀-⣿]+$/u
+/** One cell per code point: spaces and braille patterns. */
+const SCENE_GLYPHS = /^[ ⠀-⣿]+$/u
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const isTone = (value: unknown): value is Tone => typeof value === 'string' && Object.hasOwn(palette('dark'), value)
 const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value > 0
 
 /**
- * Check parsed asset JSON against its variant and copy it into display rows.
+ * Check parsed asset JSON against its scene and copy it into display rows.
  * @param value - the parsed JSON.
- * @param variant - the variant the file must hold.
- * @param failure - builds the error naming the file.
+ * @param scene - the scene the file must hold.
  * @returns the animation.
- * @throws SceneAssetError, built by `failure`, when a field is missing or malformed, the dimensions differ from `variant`, the
- *   frame count is not `fps × durationMs / 1000`, a tone is not a theme tone, a glyph is outside the scene repertoire, or a
- *   row is not exactly `columns` cells wide.
+ * @throws SceneAssetError when a field is missing or malformed, the dimensions differ from `scene`, the frame count is not
+ *   `fps × durationMs / 1000`, a tone is not a theme tone, a glyph is outside the scene repertoire, or a row is not exactly
+ *   `columns` cells wide.
  */
-export function parseSceneAnimation(value: unknown, variant: SceneVariant, failure: SceneFailure): SceneAnimation {
-  const fail = (problem: string): never => { throw failure(variant.file, problem) }
+export function parseSceneAnimation(value: unknown, scene: Scene): SceneAnimation {
+  const fail = (problem: string): never => { throw new SceneAssetError(scene.file, problem) }
   if (!isRecord(value)) return fail('the file is not a JSON object')
   const { columns, rows, fps, durationMs, frames } = value
-  if (columns !== variant.columns || rows !== variant.rows) {
-    return fail(`it declares ${String(columns)}×${String(rows)} cells instead of ${String(variant.columns)}×${String(variant.rows)}`)
+  if (columns !== scene.columns || rows !== scene.rows) {
+    return fail(`it declares ${String(columns)}×${String(rows)} cells instead of ${String(scene.columns)}×${String(scene.rows)}`)
   }
   if (!isCount(fps) || !isCount(durationMs)) return fail('fps and durationMs must be positive integers')
   if (!Array.isArray(frames) || frames.length !== fps * durationMs / 1000) return fail(`it must hold ${String(fps * durationMs / 1000)} frames`)
   const parsed = frames.map((frame: unknown, index): Row[] => {
-    if (!Array.isArray(frame) || frame.length !== variant.rows) return fail(`frame ${String(index)} does not have ${String(variant.rows)} rows`)
+    if (!Array.isArray(frame) || frame.length !== scene.rows) return fail(`frame ${String(index)} does not have ${String(scene.rows)} rows`)
     return frame.map((line: unknown, y): Row => {
       const where = `frame ${String(index)} row ${String(y)}`
       if (!isRecord(line) || !Array.isArray(line.spans)) return fail(`${where} has no spans`)
@@ -112,11 +98,11 @@ export function parseSceneAnimation(value: unknown, variant: SceneVariant, failu
         cells += part.text.length
         return { text: part.text, tone: part.tone }
       })
-      if (cells !== variant.columns) return fail(`${where} is ${String(cells)} cells wide instead of ${String(variant.columns)}`)
+      if (cells !== scene.columns) return fail(`${where} is ${String(cells)} cells wide instead of ${String(scene.columns)}`)
       return { spans }
     })
   })
-  return { variant, fps, durationMs, frames: parsed }
+  return { scene, fps, durationMs, frames: parsed }
 }
 
 /**
@@ -130,74 +116,64 @@ export function frameIndex(animation: SceneAnimation, elapsedMs: number): number
 }
 
 /**
- * Rows exactly `width` cells wide with one frame centred; the odd spare column goes to the right.
- * @param frame - rows of one frame, each `columns` cells wide.
- * @param columns - the frame's width; at most `width`.
- * @param width - the width of every returned row.
- * @returns the padded rows.
- */
-export function centreScene(frame: readonly Row[], columns: number, width: number): Row[] {
-  const left = Math.floor((width - columns) / 2), right = width - columns - left
-  return frame.map(line => ({
-    spans: [...left > 0 ? [span(' '.repeat(left))] : [], ...line.spans, ...right > 0 ? [span(' '.repeat(right))] : []],
-  }))
-}
-
-/**
- * Owner of one set of packaged scene animations. Each asset is read, gunzipped, parsed and validated synchronously the first
- * time a scene needs it, then kept for the instance's lifetime. An unusable asset is reported once through `report` and its
- * scenes stay empty; nothing is retried.
+ * Owner of the packaged animations one TUI shows. Each asset is read, gunzipped, parsed and validated synchronously the first
+ * time a frame of it is needed, then kept for the instance's lifetime. An unusable asset is reported once through `report`
+ * and its frames stay empty; nothing is retried.
  */
 export class SceneAnimations {
-  private readonly loaded = new Map<SceneVariant, SceneAnimation | SceneAssetError>()
+  private readonly loaded = new Map<Scene, SceneAnimation | SceneAssetError>()
   /**
-   * @param directory - URL of the directory holding the variant files.
-   * @param failure - builds the error for an unusable file.
+   * @param directory - URL of the directory holding the asset files.
    * @param report - receives each unusable asset once; it runs during rendering, so it must not update rendered state synchronously.
    */
-  constructor(
-    private readonly directory: URL,
-    private readonly failure: SceneFailure,
-    private readonly report: (error: SceneAssetError) => void,
-  ) {}
+  constructor(private readonly directory: URL, private readonly report: (error: SceneAssetError) => void) {}
 
   /**
-   * The animation of one variant, loading it on first use.
-   * @param variant - a variant whose file lives in this instance's directory.
+   * The animation of one scene, loading it on first use.
+   * @param scene - a scene whose file lives in this instance's directory.
    * @returns the animation, or undefined when its asset is unusable.
    */
-  animation(variant: SceneVariant): SceneAnimation | undefined {
-    let entry = this.loaded.get(variant)
+  animation(scene: Scene): SceneAnimation | undefined {
+    let entry = this.loaded.get(scene)
     if (entry === undefined) {
-      entry = this.read(variant)
-      this.loaded.set(variant, entry)
+      entry = this.read(scene)
+      this.loaded.set(scene, entry)
       if (entry instanceof SceneAssetError) this.report(entry)
     }
     return entry instanceof SceneAssetError ? undefined : entry
   }
 
   /**
-   * The frame of `variant` at `elapsedMs`, centred in rows exactly `width` cells wide.
-   * @param variant - the variant to show; at most `width` columns wide.
-   * @param width - the width of every returned row.
+   * The frame of `scene` shown after `elapsedMs` of looping playback.
+   * @param scene - the scene to show.
    * @param elapsedMs - animation time; zero shows the first frame.
-   * @returns the scene rows, or undefined when the variant's asset is unusable.
+   * @returns `scene.rows` rows of exactly `scene.columns` cells, or undefined when the scene's asset is unusable.
    */
-  protected frame(variant: SceneVariant, width: number, elapsedMs: number): Row[] | undefined {
-    const animation = this.animation(variant)
-    if (animation === undefined) return undefined
-    return centreScene(animation.frames[frameIndex(animation, elapsedMs)] ?? [], variant.columns, width)
+  frame(scene: Scene, elapsedMs: number): readonly Row[] | undefined {
+    const animation = this.animation(scene)
+    return animation === undefined ? undefined : animation.frames[frameIndex(animation, elapsedMs)]
   }
 
-  private read(variant: SceneVariant): SceneAnimation | SceneAssetError {
+  /**
+   * One frame of `scene` by its index.
+   * @param scene - the scene to show.
+   * @param index - a frame index, wrapped to the frame count.
+   * @returns the frame's rows, or undefined when the scene's asset is unusable.
+   */
+  still(scene: Scene, index: number): readonly Row[] | undefined {
+    const animation = this.animation(scene)
+    return animation === undefined ? undefined : animation.frames[index % animation.frames.length]
+  }
+
+  private read(scene: Scene): SceneAnimation | SceneAssetError {
     let value: unknown
     try {
-      value = JSON.parse(gunzipSync(readFileSync(new URL(variant.file, this.directory))).toString('utf8'))
+      value = JSON.parse(gunzipSync(readFileSync(new URL(scene.file, this.directory))).toString('utf8'))
     } catch (error) {
-      return this.failure(variant.file, 'it cannot be read as gzip JSON', { cause: error })
+      return new SceneAssetError(scene.file, 'it cannot be read as gzip JSON', { cause: error })
     }
     try {
-      return parseSceneAnimation(value, variant, this.failure)
+      return parseSceneAnimation(value, scene)
     } catch (error) {
       if (error instanceof SceneAssetError) return error
       throw error

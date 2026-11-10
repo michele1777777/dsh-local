@@ -52,9 +52,7 @@ import { createStore, projectionsAfter, queueOf, type Picker, type Store } from 
 import { addNotice, applyChunk, applyEvent, emptyTranscript, endStream, splitSettled, type Presenters } from './transcript.ts'
 import { themeName } from './theme.ts'
 import { contentSummary, safeText } from './terminal.ts'
-import type { SceneAssetError } from './animation.ts'
-import { LAYA_ASSETS, LayaAnimations } from './laya.ts'
-import { WHALE_ASSETS, WhaleAnimations } from './whale.ts'
+import { ANIMATION_ASSETS, SceneAnimations, type SceneAssetError } from './animation.ts'
 
 export const name = 'tui-runner'
 export const inject = ['agentDefaultModel', 'agents', 'attachments', 'fileUploads', 'sessionController', 'sessionQuery', 'sessionProjections', 'sessions']
@@ -820,10 +818,10 @@ export async function run(ctx: Context, config: Config, io: TuiIo): Promise<void
     const reportScene = (error: SceneAssetError): void => {
       queueMicrotask(() => { process.stderr.write(`dsh: ${safeText(error.message)}\n`) })
     }
-    const whales = new WhaleAnimations(WHALE_ASSETS, reportScene), laya = new LayaAnimations(LAYA_ASSETS, reportScene)
+    const animations = new SceneAnimations(ANIMATION_ASSETS, reportScene)
     // Ink usePaste owns terminal negotiation and restores it on unmount.
     try {
-      ink = render(createElement(App, { store, controller, terminal: claim, whales, laya }),
+      ink = render(createElement(App, { store, controller, terminal: claim, animations }),
         { stdout: claim.stdout, exitOnCtrlC: false, patchConsole: false, alternateScreen: true, maxFps: 60, incrementalRendering: true })
       if (config.task !== undefined && config.pick !== true) await controller.submit(config.task).catch((error: unknown) => {
         store.update((state) => { state.recoveredInput = config.task })
