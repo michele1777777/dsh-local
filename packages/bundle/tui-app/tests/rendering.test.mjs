@@ -54,8 +54,10 @@ test('tool folding is individual and does not change the stored result', () => {
   const item = tool({ result: { card: 'terminal', output: Array.from({length:80}, (_,i) => `OUTPUT_${i}`).join('\n'), exitCode: 0 } })
   const before = JSON.stringify(item)
   const collapsed = itemRows(item, opts(80, false)), expanded = text(itemRows(item, { ...opts(80, false), overrides: { [item.id]: true } }))
-  // Collapsed, the call is one row after the blank one, naming the last output line.
-  assert.equal(collapsed.length, 2); assert.match(text(collapsed), /OUTPUT_79/); assert.ok(!text(collapsed).includes('OUTPUT_0'))
+  // Collapsed, the call is one row after the blank one, naming what the model said it does; without that, the last output line.
+  assert.equal(collapsed.length, 2); assert.match(text(collapsed), /Run authentication tests/); assert.ok(!text(collapsed).includes('OUTPUT_'))
+  const undescribed = itemRows({ ...item, call: { card: 'terminal', title: 'pnpm test --filter auth' } }, opts(80, false))
+  assert.match(text(undescribed), /OUTPUT_79/); assert.ok(!text(undescribed).includes('OUTPUT_0'))
   assert.ok(expanded.includes('OUTPUT_0')); assert.equal(JSON.stringify(item), before)
 })
 test('all tool result variants have bounded layouts and safe raw inspectors', () => {

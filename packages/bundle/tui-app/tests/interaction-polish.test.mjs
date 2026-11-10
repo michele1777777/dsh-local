@@ -388,7 +388,7 @@ for (const navigation of ['page','wheel','end']) test(`a finished tool closes on
     assert.match(h.text(),/AFTER_/)
     await h.key('',{ctrl:true,home:true})
     assert.doesNotMatch(h.text(),/DETAIL_00/)
-    assert.match(h.text(),/DETAIL_23/)
+    assert.match(h.text(),/Run authentication tests/)
     await click(h,'inspect-item',a=>a.itemId==='auto-close')
     assert.match(h.text(),/DETAIL_00/)
   } finally {h.dispose()}

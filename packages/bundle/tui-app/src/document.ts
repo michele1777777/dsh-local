@@ -211,7 +211,28 @@ const FENCE = /^(?:`{3,}|~{3,})/u
 /** The non-blank lines of a result text, trimmed, without Markdown fence lines. */
 const resultLines = (text: string): string[] => text.split('\n').map(line => line.trim()).filter(line => line !== '' && !FENCE.test(line))
 
-/** The description after a collapsed tool call: the result in a few words, or nothing when the command already says it. */
+/** The description the model gave a call (a command's `description` argument), on one line, or undefined. */
+function callDescription(item: ToolItem): string | undefined {
+  const given = item.call.card === 'terminal' ? item.call.description : undefined
+  const value = given ?? (typeof item.args === 'object' && item.args !== null && 'description' in item.args ? item.args.description : undefined)
+  if (typeof value !== 'string') return undefined
+  const line = safeText(value).replace(/\s+/gu, ' ').trim()
+  return line === '' ? undefined : line
+}
+
+/**
+ * The description column of a collapsed tool call: what the model said the call does, while it runs and after it succeeds,
+ * followed by the failure in its colour when it fails; a call without such a description shows its result in a few words.
+ */
+function toolDescription(item: ToolItem): Span[] | undefined {
+  const described = callDescription(item)
+  const note = toolNote(item)
+  if (described === undefined) return note === undefined ? undefined : [note]
+  const failure = note !== undefined && note.tone !== 'muted'
+  return failure ? [span(described, 'muted'), span(' · ', 'muted'), note] : [span(described, 'muted')]
+}
+
+/** The result of a collapsed tool call in a few words, or nothing when the command already says it. */
 function toolNote(item: ToolItem): Span | undefined {
   if (!item.settled) return undefined
   if (item.cancelled === true) return span('interrupted', 'warning')
@@ -267,8 +288,8 @@ function oneRowCommand(item: Item, options: DocumentOptions): readonly Span[] | 
 interface OneRowColumns {
   /** Glyph, verb and target, or the thought label. */
   readonly command: readonly Span[]
-  /** The result in a few words; muted unless it reports a failure. */
-  readonly description: Span | undefined
+  /** What the model said the call does, else its result in a few words; a failure keeps its colour. */
+  readonly description: readonly Span[] | undefined
   /** The duration, empty when unknown. */
   readonly time: string
 }
@@ -282,11 +303,11 @@ interface OneRowColumns {
 function columnsRow(columns: OneRowColumns, column: number | undefined, width: number): Row {
   const { time } = columns
   const room = Math.max(1, width - (time === '' ? 0 : widthOf(time) + GAP))
-  const wanted = columns.description === undefined ? 0 : widthOf(columns.description.text) + GAP
+  const wanted = columns.description === undefined ? 0 : widthOf(textOfRow(row(...columns.description))) + GAP
   const command = fitRow(row(...columns.command), Math.max(Math.min(COMMAND_MIN_CELLS, room), room - wanted))
   const used = widthOf(textOfRow(command))
   const at = Math.max(used + GAP, Math.min(column ?? 0, room - wanted + GAP))
-  const description = columns.description === undefined || room - at < 1 ? undefined : fitRow(row(columns.description), room - at)
+  const description = columns.description === undefined || room - at < 1 ? undefined : fitRow(row(...columns.description), room - at)
   const left = description === undefined ? command : row(...command.spans, span(' '.repeat(at - used)), ...description.spans)
   if (time === '') return left
   const gap = Math.max(1, width - widthOf(textOfRow(left)) - widthOf(time))
@@ -296,7 +317,7 @@ function columnsRow(columns: OneRowColumns, column: number | undefined, width: n
 /** A collapsed tool call as one row in the {@link columnsRow} columns. */
 function toolLine(item: ToolItem, width: number, column: number | undefined): Row {
   const time = item.settled && item.startedAt !== undefined && item.completedAt !== undefined ? duration(item.completedAt - item.startedAt) : ''
-  return columnsRow({ command: toolCommand(item), description: toolNote(item), time }, column, width)
+  return columnsRow({ command: toolCommand(item), description: toolDescription(item), time }, column, width)
 }
 
 /** Whether reasoning is still arriving: live Thinking, as opposed to a settled thought. */
@@ -312,7 +333,7 @@ const foldedThought = (item: AssistantItem, options: DocumentOptions): boolean =
 function thoughtLine(item: AssistantItem, width: number, column: number | undefined): Row {
   const count = item.reasoning.split('\n').length
   const time = item.reasoningStartedAt === undefined || item.reasoningEndedAt === undefined ? '' : duration(item.reasoningEndedAt - item.reasoningStartedAt)
-  const value = columnsRow({ command: THOUGHT_COMMAND, description: span(`${count} line${count === 1 ? '' : 's'}`, 'muted'), time }, column, width)
+  const value = columnsRow({ command: THOUGHT_COMMAND, description: [span(`${count} line${count === 1 ? '' : 's'}`, 'muted')], time }, column, width)
   return clickable(value, { kind: 'toggle-reasoning', itemId: item.id })
 }
 
