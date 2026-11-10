@@ -438,7 +438,7 @@ function isOneRow(item: Item, options: DocumentOptions): boolean {
 }
 /**
  * Render one transcript item: a blank row, then the item behind a two-cell margin. A user prompt is bold on a band across the
- * width behind an accent bar, and an assistant message marks its first row with a dot. A collapsed tool call and a folded
+ * width behind an accent bar, and an assistant answer marks its first visible row with a dot. A collapsed tool call and a folded
  * settled thought are a list row each, a tool call with its description on a connector row below, and open into a title row
  * with the body behind a rail. Live reasoning is its label with the Thinking scene or mark and its latest rows, or the
  * reasoning text when opened. Rows carry the item id, a heading flag on the row after the blank one, and click actions.
@@ -489,10 +489,13 @@ export function itemRows(unsafe: Item, options: DocumentOptions): Row[] {
       }
     }
     if (item.text !== '') {
-      // A thought and the answer after it are two blocks.
-      if (rows.length > 1 && (options.terminalRows ?? 0) >= ROOMY_TERMINAL_ROWS) rows.push(row(''))
       const original = unsafe.kind === 'assistant' ? unsafe.text : item.text
-      rows.push(...indent(options.streaming?.markdown.rows(item.id, original, content) ?? markdownRows(original, content), span(`${STATUS_DOT} `, 'accent')))
+      const answer = options.streaming?.markdown.rows(item.id, original, content) ?? markdownRows(original, content)
+      const firstVisible = answer.findIndex(line => textOfRow(line).trim() !== '')
+      if (firstVisible >= 0) {
+        if (rows.length > 1 && (options.terminalRows ?? 0) >= ROOMY_TERMINAL_ROWS) rows.push(row(''))
+        rows.push(...indent(answer.slice(firstVisible), span(`${STATUS_DOT} `, 'accent')))
+      }
     }
     if (item.reasoning === '' && item.text === '' && !item.settled) {
       const label = row(span('Waiting for model…', 'muted'))
