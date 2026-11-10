@@ -76,7 +76,7 @@ Examples:
   dsh -c                      Same as dsh continue
   dsh -r session-<uuid>        Same as dsh resume session-<uuid>
 
-Inside the chat: /help · /resume · /model · /compact · /queue
+Inside the chat: /help · /resume · /model · /compact
 Enter sends · Alt+Enter / Ctrl+J inserts a newline · Esc cancels
 `)
   return program

@@ -58,7 +58,7 @@ export function queueOf(projections: SessionProjectionValues): QueuedItem[] {
   return [...rows('next-turn'), ...rows('next-step')]
 }
 /** Full-screen panels that replace the transcript view. */
-export type Panel = 'transcript' | 'changes' | 'context' | 'permissions' | 'tasks' | 'jobs' | 'goal' | 'help'
+export type Panel = 'transcript' | 'context' | 'permissions' | 'tasks' | 'jobs' | 'goal' | 'help'
 /** Choosing a row runs `command`, else places `draft` in the composer, else only closes the picker. */
 export interface PickerRow { id: string; label: string; detail: string; command?: string; draft?: string; current?: boolean }
 /** An open selection list and the rows it offers; `all` widens session lists beyond the current directory. */
@@ -87,8 +87,6 @@ export interface ChatState {
   terminalTitle?: boolean
   /** Animated decorations, such as the whale on an empty conversation. */
   motion?: boolean
-  /** Incremented only by the local /editor command. */
-  editorRequest?: number
   panel?: Panel | undefined
   approvalPolicy?: 'ask' | 'never' | undefined
   /** Local views of shared approval events; no permission decisions originate here. */

@@ -126,7 +126,7 @@ export function diffRows(diffs: readonly { path: string; oldText: string | null;
       // One number column: the old line of a removed line, the new line of every other.
       result.push(...lineRows(line, line.sign === '-' ? line.oldLine : line.newLine, width, language, parts.get(line), width >= 50))
     }
-    if (!expanded && review.lines.length > lines.length) result.push(...wrapRow(row(span(`… ${review.lines.length - lines.length} diff lines · click tool to inspect · /diff to review`, 'muted')), width))
+    if (!expanded && review.lines.length > lines.length) result.push(...wrapRow(row(span(`… ${review.lines.length - lines.length} diff lines · click tool to inspect`, 'muted')), width))
   }
   return result
 }

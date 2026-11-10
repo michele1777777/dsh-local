@@ -2061,7 +2061,7 @@ export interface Config extends ProtocolConfig, ModelListingConfig {
 
 - `inject`: `llm`
 - `refs`: `Api` (`@earendil-works/pi-ai`) · `CacheRetention` (`@earendil-works/pi-ai`) · `Model` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · `OpenAICompletionsCompat` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`) · `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/llm/llm-pi-ai/src/config.ts:257`](../packages/llm/llm-pi-ai/src/config.ts)
+- `source`: [`packages/llm/llm-pi-ai/src/config.ts:263`](../packages/llm/llm-pi-ai/src/config.ts)
 
 ```ts config-catalog
 /** Plugin configuration: the provider routes this instance owns. */
@@ -2088,6 +2088,12 @@ export interface PiAiProviderProfile {
   api?: string
   /** Endpoint for this route's models; defaults to the installed catalog's endpoint. */
   baseURL?: string
+  /**
+   * Launch-environment variable whose non-empty value replaces `baseURL`, so one shipped route can reach a
+   * server whose address differs per machine. Read when the profiles resolve; an unset or empty variable keeps
+   * `baseURL`.
+   */
+  baseURLEnv?: string
   /**
    * This route's model catalog. Omission serves the installed catalog for the
    * route unchanged; an explicit list replaces it, each entry defaulting its
@@ -4766,10 +4772,11 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tui-app`
 
-- `inject`: `agentDefaultModel` · `agents` · `attachments` · `fileUploads` · `sessionController` · `sessionQuery` · `sessionProjections` · `sessions`
-- `source`: [`packages/bundle/tui-app/src/index.ts:57`](../packages/bundle/tui-app/src/index.ts)
+- `inject`: `agentDefaultModel` · `agents` · `attachments` · `sessionController` · `sessionQuery` · `sessionProjections` · `sessions`
+- `source`: [`packages/bundle/tui-app/src/index.ts:58`](../packages/bundle/tui-app/src/index.ts)
 
 ```ts config-catalog
+/** Startup request for the terminal chat, normally supplied by `tui-startup`. */
 export interface Config {
   /** Opening prompt submitted to the new session at startup. */
   task?: string

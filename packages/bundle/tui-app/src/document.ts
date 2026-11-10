@@ -8,7 +8,7 @@ import { diffRows } from './diff-layout.ts'
 import { codeBlocks } from './code-blocks.ts'
 import { COPY_LABEL, createStreamingMarkdown, createStreamingProse, markdownRows, type StreamingLayout } from './markdown-layout.ts'
 import { duration, layaCutting, layaPhaseLabel } from './metrics.ts'
-import { fitRow, indentRows, onBackground, padText, row, span, textOfRow, widthOf, wrapProse, wrapRow, type Row, type Span } from './rich-text.ts'
+import { fitRow, indentRows, onBackground, padText, row, span, STATUS_DOT, textOfRow, widthOf, wrapProse, wrapRow, type Row, type Span } from './rich-text.ts'
 import { highlight, languageOf } from './syntax.ts'
 import { displayTree, jsonText, safeText, tokens } from './terminal.ts'
 import { toolBadge } from './tool-format.ts'
@@ -23,22 +23,19 @@ export interface DocumentOptions {
   expanded: boolean
   overrides: Readonly<Record<string, boolean>>
   raw?: boolean
-  changesOnly?: boolean
   tick?: number
   now?: number
   /** Only the latest reasoning segment carries the Thinking mark. */
   thinkingDecoration?: boolean
   /** False holds every animation on a still frame. */
   motion?: boolean
-  /** Terminal height; the Thinking scene needs {@link THINKING_SCENE_MIN_TERMINAL_ROWS}, and shorter terminals get the small mark. */
+  /**
+   * Terminal height; the Thinking scene needs {@link THINKING_SCENE_MIN_TERMINAL_ROWS}, and shorter terminals get the small
+   * mark. From {@link ROOMY_TERMINAL_ROWS} a blank row separates consecutive one-row items.
+   */
   terminalRows?: number
   /** Source of the Thinking mark beside live reasoning and the Waiting for model label; without it neither shows a mark. */
   animations?: SceneAnimations
-  /**
-   * Cell, counted from the item margin, where a one-row item's description column starts; the document renderer shares one
-   * value across consecutive one-row items. Without it the description starts two cells after the row's own command.
-   */
-  column?: number
   /** Reuses completed rows of a growing message; a full layout is used without it. */
   streaming?: { markdown: StreamingLayout; prose: StreamingLayout }
 }
@@ -59,6 +56,13 @@ function besideLabel(label: Row, frame: readonly Row[] | undefined, width: numbe
     ...index === middle ? [...label.spans, span(' '.repeat(GAP))] : [span(' '.repeat(offset))], ...part.spans,
   ))
 }
+
+/**
+ * Fewest terminal rows that get the roomy layout: a blank row between consecutive one-row items in the conversation, between
+ * a thought and the answer that follows it, under the header, under the indicator row and above the composer. A shorter
+ * terminal keeps every row for content.
+ */
+export const ROOMY_TERMINAL_ROWS = 28
 
 /** Terminal rows the Thinking scene needs: the label, the scene and its caption, and the header, composer and status line. */
 const THINKING_SCENE_MIN_TERMINAL_ROWS = THINKING_SCENE.rows + 14
@@ -128,13 +132,14 @@ const clickable = (value: Row, action: UiAction): Row => ({ ...value, spans: val
 const RAIL = 2
 
 /**
- * One open disclosure: the title row, which is the click target that folds it, then the body behind a rail in `tone`. The
+ * One open disclosure: the title row, which is the click target that folds it, then the body behind a rail in `tone`: dotted
+ * for a thought and a command result, a heavier dashed one for a tool call. The
  * body has no closing edge and no right border, so wrapped output never has a border to keep aligned.
  */
-function disclosure(title: Row, body: readonly Row[], width: number, tone: Tone, action: UiAction): Row[] {
+function disclosure(title: Row, body: readonly Row[], width: number, tone: Tone, action: UiAction, rail = '┊ '): Row[] {
   if (width < 8) return [clickable(fitRow(title, width), action), ...body.flatMap(value => wrapRow(value, width))]
   return [clickable(fitRow(title, width), action),
-    ...body.flatMap(value => wrapRow(value, width - RAIL)).map(line => ({ ...line, spans: [span('┃ ', tone), ...line.spans] }))]
+    ...body.flatMap(value => wrapRow(value, width - RAIL)).map(line => ({ ...line, spans: [span(rail, tone), ...line.spans] }))]
 }
 
 function field(label: string, value: string, width: number): Row[] {
@@ -193,12 +198,6 @@ function layaRows(item: LayaItem, width: number, expanded: boolean): Row[] {
   if (!expanded && sorted.length > shown.length) out.push(row(span(`  … ${sorted.length - shown.length} more · click title to toggle inline`, 'muted')))
   return out
 }
-/**
- * Whether an item is a tool call whose result is a file diff.
- * @param item - transcript item.
- * @returns true for diff-card tool items.
- */
-export function isChange(item: Item): item is ToolItem { return item.kind === 'tool' && item.result?.card === 'diff' }
 function json(value: unknown): string {
   try { return typeof value === 'string' ? value : jsonText(value, 2) ?? '' }
   catch { return '[Arguments could not be serialized]' }
@@ -262,12 +261,12 @@ const CODED = /^([a-z][a-z0-9]*(?:_[a-z0-9]+)+): ([\s\S]+)$/u
 function noticeRows(item: NoticeItem, width: number): Row[] {
   if (item.level !== 'error') {
     const tone = item.level === 'success' ? 'success' : 'muted'
-    return wrapProse(row(span(`${item.level === 'success' ? '✓' : '■'} ${item.text}`, tone)), width)
+    return wrapProse(row(span(`${item.level === 'success' ? STATUS_DOT : '■'} ${item.text}`, tone)), width)
   }
   const coded = CODED.exec(item.text)
   const words = coded?.[1]?.replace(/_/gu, ' ') ?? ''
   const title = coded === null ? [] : [span(`${words.charAt(0).toUpperCase()}${words.slice(1)}`, 'error', true), span('  ')]
-  return wrapProse(row(span('✕ ', 'error', true), ...title, span(coded?.[2] ?? item.text, coded === null ? 'error' : 'text')), Math.max(1, width - RAIL))
+  return wrapProse(row(span(`${STATUS_DOT} `, 'error', true), ...title, span(coded?.[2] ?? item.text, coded === null ? 'error' : 'text')), Math.max(1, width - RAIL))
     .map(line => ({ ...line, spans: [span('┃ ', 'error'), ...line.spans] }))
 }
 
@@ -277,10 +276,8 @@ const MARGIN = '  '
 const MARGIN_MIN_WIDTH = 12
 /** Cells inside the margin of a document `width` cells wide. */
 const contentWidth = (width: number): number => Math.max(1, width - (width >= MARGIN_MIN_WIDTH ? MARGIN.length : 0))
-/** The command keeps at least this many cells (glyph, verb and the start of the target) before the description is cut. */
-const COMMAND_MIN_CELLS = 16
-/** Share of the content width the shared description column may start at, so long commands leave descriptions room. */
-const COLUMN_SHARE = 0.6
+/** The connector that hangs a description under the verb of its command. */
+const BRANCH = '└─ '
 
 const FENCE = /^(?:`{3,}|~{3,})/u
 /** The non-blank lines of a result text, trimmed, without Markdown fence lines. */
@@ -300,7 +297,7 @@ function callDescription(item: ToolItem): string | undefined {
 }
 
 /**
- * The description column of a collapsed tool call: what the model said the call does, while it runs and after it succeeds,
+ * The description of a collapsed tool call: what the model said the call does, while it runs and after it succeeds,
  * followed by the failure in its colour when it fails; a call without such a description shows its result in a few words.
  */
 function toolDescription(item: ToolItem): Span[] | undefined {
@@ -308,7 +305,7 @@ function toolDescription(item: ToolItem): Span[] | undefined {
   const note = toolNote(item)
   if (described === undefined) return note
   const failure = note !== undefined && (item.cancelled === true || failed(item))
-  return failure ? [span(described, 'muted'), span(' · ', 'muted'), ...note] : [span(described, 'muted')]
+  return failure ? [span(described, 'description'), span(' · ', 'muted'), ...note] : [span(described, 'description')]
 }
 
 /**
@@ -319,7 +316,7 @@ function toolNote(item: ToolItem): Span[] | undefined {
   if (!item.settled) return undefined
   if (item.cancelled === true) return [span('interrupted', 'warning')]
   if (item.isError) return [span(resultLines(item.resultText ?? '')[0] ?? 'failed', 'error')]
-  const view = item.result, said = (text: string | undefined): Span[] | undefined => text === undefined ? undefined : [span(text, 'muted')]
+  const view = item.result, said = (text: string | undefined): Span[] | undefined => text === undefined ? undefined : [span(text, 'description')]
   switch (view?.card) {
     case undefined: return said(resultLines(item.resultText ?? '')[0])
     case 'diff': {
@@ -346,13 +343,15 @@ function toolNote(item: ToolItem): Span[] | undefined {
 const VERB_CELLS = 6
 
 /**
- * The command column of a collapsed tool call: status glyph, the verb in its tool category's tone, padded to
+ * The command of a collapsed tool call: the status dot (green when it succeeded, red when it failed, yellow when it was
+ * interrupted, a ring while it runs), the verb in its tool category's tone, padded to
  * {@link VERB_CELLS}, and the target. A command runs (`Run <command>`); other titles that open with a capitalised word use
  * it as the verb (`Read src/auth.ts`). Control text is neutralized, so the renderer can measure the column before laying the
  * item out.
  */
 function toolCommand(item: ToolItem): Span[] {
-  const glyph = item.cancelled === true ? span('–', 'warning') : failed(item) ? span('×', 'error') : item.settled ? span('✓', 'success') : span('◌', 'accent')
+  const glyph = item.cancelled === true ? span(STATUS_DOT, 'warning') : failed(item) ? span(STATUS_DOT, 'error')
+    : item.settled ? span(STATUS_DOT, 'success') : span('◌', 'accent')
   const title = safeText(item.result?.title || item.call.title || item.name)
   const command = item.call.card === 'terminal' || (item.call.card === 'generic' && item.call.kind === 'execute')
   const named = /^(\p{Lu}[\p{L}-]*)\s+(\S[\s\S]*)$/u.exec(title)
@@ -364,22 +363,6 @@ function toolCommand(item: ToolItem): Span[] {
 
 /** The command column of a folded thought. */
 const THOUGHT_COMMAND: readonly Span[] = [span('✦ Thought', 'reasoning')]
-
-/** The command column of a one-row item, or undefined for an item that is not one row. */
-function oneRowCommand(item: Item, options: DocumentOptions): readonly Span[] | undefined {
-  if (!isOneRow(item, options)) return undefined
-  return item.kind === 'tool' ? toolCommand(item) : THOUGHT_COMMAND
-}
-
-/** The three columns of a collapsed tool call. */
-interface OneRowColumns {
-  /** Glyph, verb and target, or the thought label. */
-  readonly command: readonly Span[]
-  /** What the model said the call does, else its result in a few words; a failure keeps its colour. */
-  readonly description: readonly Span[] | undefined
-  /** The duration, empty when unknown. */
-  readonly time: string
-}
 
 /**
  * A command row cut to `width` cells. Its last span, the target, keeps its start and its last whole words around ` … `, so
@@ -401,43 +384,31 @@ function cutMiddle(command: readonly Span[], width: number): Row {
 }
 
 /**
- * A one-row item in three columns: the command, the description starting at `column` (or {@link GAP} cells after a command
- * that reaches it), and the duration right-aligned at `width`, muted. The command is the main text and the description is
- * never cut for it: when both do not fit on one row, the command keeps the row, cut in its middle if it is longer still, and
- * the description follows on its own rows under the command's target, wrapped. A short result note instead stays on the row, and the
- * command is cut in its middle to leave it room. The duration stays.
+ * A collapsed tool call: the command, cut in its middle when it is too long, with an optional note and the duration right
+ * after it behind a middle dot; then the description on its own rows under the verb, hung on a thin connector and wrapped,
+ * never cut.
+ * @param command - glyph, verb and target.
+ * @param description - what the model said the call does, else its result in a few words; a failure keeps its colour.
+ * @param time - the duration, empty when unknown.
+ * @param width - cells available.
+ * @param note - spans that follow the command before the duration, such as an exit code.
  */
-function columnsRows(columns: OneRowColumns, column: number | undefined, width: number, below: boolean): Row[] {
-  const { time } = columns
-  const timed = (left: Row): Row => {
-    if (time === '') return left
-    const gap = Math.max(1, width - widthOf(textOfRow(left)) - widthOf(time))
-    return fitRow(row(...left.spans, span(' '.repeat(gap)), span(time, 'muted')), width)
-  }
-  const room = Math.max(1, width - (time === '' ? 0 : widthOf(time) + GAP))
-  const wanted = columns.description === undefined ? 0 : widthOf(textOfRow(row(...columns.description))) + GAP
-  const full = widthOf(textOfRow(row(...columns.command)))
-  if (columns.description !== undefined && below && full + wanted > room) {
-    // The description starts under the target, after the glyph and the padded verb.
-    const lead = Math.min(Math.max(0, width - 8), widthOf(textOfRow(row(...columns.command.slice(0, 2)))) + 1)
-    return [timed(cutMiddle(columns.command, room)),
-      ...wrapProse(row(...columns.description), Math.max(1, width - lead)).map(line => ({ ...line, spans: [span(' '.repeat(lead)), ...line.spans] }))]
-  }
-  const command = cutMiddle(columns.command, Math.max(Math.min(COMMAND_MIN_CELLS, room), room - wanted))
-  const used = widthOf(textOfRow(command))
-  const at = Math.max(used + GAP, Math.min(column ?? 0, room - wanted + GAP))
-  const description = columns.description === undefined || room - at < 1 ? undefined : fitRow(row(...columns.description), room - at)
-  return [timed(description === undefined ? command : row(...command.spans, span(' '.repeat(at - used)), ...description.spans))]
+function commandRows(command: readonly Span[], description: readonly Span[] | undefined, time: string, width: number,
+  note: readonly Span[] = []): Row[] {
+  const after = [...note.length === 0 ? [] : [span(' · ', 'comment'), ...note], ...time === '' ? [] : [span(' · ', 'comment'), span(time, 'muted')]]
+  const first = fitRow(row(...cutMiddle(command, Math.max(1, width - widthOf(textOfRow(row(...after))))).spans, ...after), width)
+  if (description === undefined) return [first]
+  // The connector starts under the verb: after the status dot and its space, and after the fold mark of an open call.
+  const verb = command.findIndex(part => part.bold === true)
+  const lead = Math.min(Math.max(0, width - 8), widthOf(textOfRow(row(...command.slice(0, Math.max(0, verb))))) + 1)
+  return [first, ...wrapProse(row(...description), Math.max(1, width - lead - BRANCH.length))
+    .map((line, index) => ({ ...line, spans: [span(' '.repeat(lead)), span(index === 0 ? BRANCH : ' '.repeat(BRANCH.length), 'comment'), ...line.spans] }))]
 }
 
-/**
- * A collapsed tool call in the {@link columnsRows} columns: one row, or two when the command and the description the model
- * gave it do not fit on one.
- */
-function toolLines(item: ToolItem, width: number, column: number | undefined): Row[] {
+/** A collapsed tool call as {@link commandRows} lays it out. */
+function toolLines(item: ToolItem, width: number): Row[] {
   const time = item.settled && item.startedAt !== undefined && item.completedAt !== undefined ? duration(item.completedAt - item.startedAt) : ''
-  const described = callDescription(item) !== undefined
-  return columnsRows({ command: toolCommand(item), description: toolDescription(item), time }, column, width, described)
+  return commandRows(toolCommand(item), toolDescription(item), time, width)
 }
 
 /** Whether reasoning is still arriving: live Thinking, as opposed to a settled thought. */
@@ -459,7 +430,7 @@ function thoughtLine(item: AssistantItem, width: number): Row {
 
 /**
  * An item that renders as a list row after its blank row: a collapsed tool call outside the raw inspector, which takes a
- * second row for a description that does not fit beside its command, or a lone folded thought.
+ * row under its command for its description, or a lone folded thought.
  */
 function isOneRow(item: Item, options: DocumentOptions): boolean {
   if (item.kind === 'tool') return !(options.overrides[item.id] ?? options.expanded) && options.raw !== true
@@ -467,10 +438,10 @@ function isOneRow(item: Item, options: DocumentOptions): boolean {
 }
 /**
  * Render one transcript item: a blank row, then the item behind a two-cell margin. A user prompt is bold on a band across the
- * width behind an accent bar, and an assistant message marks its first row with `●`. A collapsed tool call and a folded
- * settled thought are one row each in command, description and duration columns, and open into a title row with the body
- * behind a rail. Live reasoning is its label with the Thinking scene or mark and its latest rows, or the reasoning text when
- * opened. Rows carry the item id, a heading flag on the row after the blank one, and click actions.
+ * width behind an accent bar, and an assistant message marks its first row with a dot. A collapsed tool call and a folded
+ * settled thought are a list row each, a tool call with its description on a connector row below, and open into a title row
+ * with the body behind a rail. Live reasoning is its label with the Thinking scene or mark and its latest rows, or the
+ * reasoning text when opened. Rows carry the item id, a heading flag on the row after the blank one, and click actions.
  * @param unsafe - the item; terminal control text is neutralized before layout.
  * @param options - layout inputs.
  * @returns the item's rows.
@@ -518,15 +489,17 @@ export function itemRows(unsafe: Item, options: DocumentOptions): Row[] {
       }
     }
     if (item.text !== '') {
+      // A thought and the answer after it are two blocks.
+      if (rows.length > 1 && (options.terminalRows ?? 0) >= ROOMY_TERMINAL_ROWS) rows.push(row(''))
       const original = unsafe.kind === 'assistant' ? unsafe.text : item.text
-      rows.push(...indent(options.streaming?.markdown.rows(item.id, original, content) ?? markdownRows(original, content), span('● ', 'accent')))
+      rows.push(...indent(options.streaming?.markdown.rows(item.id, original, content) ?? markdownRows(original, content), span(`${STATUS_DOT} `, 'accent')))
     }
     if (item.reasoning === '' && item.text === '' && !item.settled) {
       const label = row(span('Waiting for model…', 'muted'))
       rows.push(...indent(thinkingRows(label, item.id, (options.tick ?? 0) * ANIMATION_TICK_MS, content, options, true)))
     }
   } else if (item.kind === 'tool') {
-    if (isOneRow(item, options)) rows.push(...indent(toolLines(item, content, options.column)))
+    if (isOneRow(item, options)) rows.push(...indent(toolLines(item, content)))
     else {
       const inner = Math.max(1, content - RAIL)
       const body: Row[] = []
@@ -535,7 +508,7 @@ export function itemRows(unsafe: Item, options: DocumentOptions): Row[] {
         const described = command ? callDescription(item)
           ?? (item.call.card === 'generic' && item.call.content !== undefined ? textOf(item.call.content) : undefined) : undefined
         // What the model said the command does, under the command in the title row.
-        if (described !== undefined && described !== '') body.push(...wrapProse(row(span(described, 'muted')), inner), row(''))
+        if (described !== undefined && described !== '') body.push(...wrapProse(row(span(described, 'description')), inner), row(''))
         if (!command && item.call.card === 'generic' && item.call.content !== undefined) body.push(...markdownRows(textOf(item.call.content), inner), row(''))
         // A call whose result has no view of its own shows the arguments it was given.
         if (!command && (item.result === undefined || item.result.card === 'generic')) body.push(...field('Arguments', json(item.args), inner), row(''))
@@ -543,8 +516,9 @@ export function itemRows(unsafe: Item, options: DocumentOptions): Row[] {
       body.push(...resultRows(item, inner, options.raw === true))
       if (!item.settled) body.push(row(span('Running…', 'accent')))
       const time = item.settled && item.startedAt !== undefined && item.completedAt !== undefined ? duration(item.completedAt - item.startedAt) : ''
-      const [title] = columnsRows({ command: [span('▾ ', 'muted'), ...toolCommand(item)], description: openNote(item), time }, undefined, content, false)
-      rows.push(...indent(disclosure(title ?? row(''), body, content, toolBadge(item.name, item.call, item.result).tone, { kind: 'inspect-item', itemId: item.id })))
+      const [title] = commandRows([span('▾ ', 'muted'), ...toolCommand(item)], undefined, time, content, openNote(item))
+      rows.push(...indent(disclosure(title ?? row(''), body, content, toolBadge(item.name, item.call, item.result).tone,
+        { kind: 'inspect-item', itemId: item.id }, '┇ ')))
     }
   } else if (item.kind === 'command') {
     // Folded, a command is one row: its name, its state and the first line of what it answered.
@@ -641,34 +615,10 @@ export function compactingRows(pass: CompactionPass, width: number): Row[] {
 }
 
 /**
- * The description column of every run of consecutive one-row items: two cells after the widest command that fits before
- * {@link COLUMN_SHARE} of the content width.
- */
-function sharedColumns(items: readonly Item[], options: DocumentOptions): Map<string, number> {
-  const columns = new Map<string, number>()
-  const limit = Math.floor(contentWidth(options.width) * COLUMN_SHARE)
-  let run: string[] = [], widest = 0
-  const close = (): void => {
-    for (const id of run) columns.set(id, Math.min(widest + GAP, limit))
-    run = []; widest = 0
-  }
-  for (const item of items) {
-    const command = oneRowCommand(item, options)
-    if (command === undefined) { close(); continue }
-    run.push(item.id)
-    // A command too long for the column puts its description on a second row, so it does not push the column right.
-    const cells = widthOf(textOfRow(row(...command)))
-    if (cells + GAP <= limit) widest = Math.max(widest, cells)
-  }
-  close()
-  return columns
-}
-
-/**
  * Reuse settled row layouts; streaming a token must not re-highlight old files.
  * @returns a renderer whose `render` lays out items through a per-item cache, leaves out the blank row between consecutive
- *   one-row items (collapsed tool calls and folded thoughts), aligns their description columns, and drops entries for absent
- *   items, and whose `clear` empties every cache.
+ *   one-row items (collapsed tool calls and folded thoughts) below {@link ROOMY_TERMINAL_ROWS} terminal rows and, from that
+ *   height, the blank row above the first item, and drops entries for absent items, and whose `clear` empties every cache.
  */
 export function createDocumentRenderer(): { render(items: readonly Item[], options: DocumentOptions): Row[]; clear(): void } {
   const cache = new Map<string, { item: Item; key: string; rows: Row[] }>()
@@ -677,29 +627,29 @@ export function createDocumentRenderer(): { render(items: readonly Item[], optio
     clear() { cache.clear(); streaming.markdown.clear(); streaming.prose.clear() },
     render(items, options) {
       const latestThinking = items.findLast(item => item.kind === 'assistant' && (item.reasoning !== '' || (!item.settled && item.text === '')))?.id
-      const shown = options.changesOnly === true ? items.filter(isChange) : items
-      const columns = sharedColumns(shown, options)
       const ids = new Set<string>(); const result: Row[] = []
       for (const item of items) ids.add(item.id)
       let previousLine = false
-      for (const item of shown) {
-        // Consecutive one-row tool calls and folded thoughts form a list without blank rows between them.
-        const line = isOneRow(item, options), joined = line && previousLine
+      const roomy = (options.terminalRows ?? 0) >= ROOMY_TERMINAL_ROWS
+      for (const item of items) {
+        // On a short terminal consecutive one-row tool calls and folded thoughts form a list without blank rows between them.
+        const line = isOneRow(item, options), joined = line && previousLine && !roomy
         previousLine = line
         const reasoningOverride = options.overrides[`reasoning:${item.id}`] ?? false
         const activeThinking = item.kind === 'assistant' && thinking(item)
         const decorated = item.id === latestThinking
-        const column = columns.get(item.id)
-        const layout: DocumentOptions = { ...options, streaming, thinkingDecoration: decorated, ...column === undefined ? {} : { column } }
+        const layout: DocumentOptions = { ...options, streaming, thinkingDecoration: decorated }
         const tickKey = activeThinking ? `${options.tick ?? 0}:${Math.floor((options.now ?? 0) / 1000)}` : 'settled'
-        const key = `${options.width}:${options.overrides[item.id] ?? options.expanded}:${reasoningOverride}:${options.raw === true}:${decorated}:${column ?? ''}:${tickKey}`
+        const key = `${options.width}:${options.overrides[item.id] ?? options.expanded}:${reasoningOverride}:${options.raw === true}:${decorated}:${roomy}:${tickKey}`
         let entry = cache.get(item.id)
         const keys = Object.keys(item) as (keyof Item)[]
         const drifted = keys.some(field => item[field] !== entry?.item[field])
         if (entry === undefined || entry.key !== key || drifted || Object.keys(entry.item).length !== keys.length) {
           entry = { item: { ...item }, key, rows: itemRows(item, layout) }; cache.set(item.id, entry)
         }
-        for (const [index, value] of entry.rows.entries()) if (!joined || index > 0) result.push(value)
+        // The first item starts under the blank row the screen keeps below its header.
+        const headless = joined || (roomy && result.length === 0)
+        for (const [index, value] of entry.rows.entries()) if (!headless || index > 0) result.push(value)
       }
       for (const id of cache.keys()) if (!ids.has(id)) cache.delete(id)
       return result

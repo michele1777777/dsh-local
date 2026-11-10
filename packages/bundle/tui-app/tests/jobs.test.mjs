@@ -60,9 +60,9 @@ test('job rows name what the job does, colour its status, order live jobs first 
   assert.deepEqual(rows.map(textOfRow), [
     `◌ Start the dev server${' '.repeat(35)}12s`,
     '  pnpm dev --port 3000 · listening on :3000',
-    `✓ pnpm build${' '.repeat(44)}9.0s`,
+    `• pnpm build${' '.repeat(44)}9.0s`,
     '  completed',
-    `× pnpm test${' '.repeat(45)}4.0s`,
+    `• pnpm test${' '.repeat(45)}4.0s`,
     '  exit code: 1',
   ])
   assert.equal(rows[0].spans[0].tone, 'accent')

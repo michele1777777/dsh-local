@@ -39,80 +39,77 @@ async function click(h, predicate) {
   assert.fail(`no visible target in:\n${h.text()}`)
 }
 
-test('collapsed tool calls are single rows in three columns: command, muted description, and the duration at the right edge', () => {
+test('a collapsed tool call is its command with the duration right after it, and its description on a connector row below', () => {
   const rows = createDocumentRenderer().render(conversation().slice(2, 5), { width: 100, expanded: false, overrides: {} })
-  // One blank row above the run, none between consecutive calls; every row reaches the right edge of the frame.
-  assert.equal(textOfRow(rows[0]), '')
-  // The verbs are padded to one width, so the targets start in one column.
-  assert.match(textOfRow(rows[1]), /^ {2}✓ Read {3}src\/auth\.ts +1\.8s$/)
-  assert.match(textOfRow(rows[2]), /^ {2}✓ Edit {3}src\/auth\.ts +\+2 −1 +1\.8s$/)
-  assert.match(textOfRow(rows[3]), /^ {2}✓ Run {4}pnpm test --filter auth {2}Run authentication tests +1\.8s$/)
-  assert.ok(rows.slice(1).every(value => widthOf(textOfRow(value)) === 100))
-  // The descriptions of consecutive calls share one column, two cells after the widest command.
-  assert.equal(textOfRow(rows[2]).indexOf('+2 −1'), textOfRow(rows[3]).indexOf('Run authentication tests'))
-  assert.equal(textOfRow(rows[3]).indexOf('Run authentication tests'), 2 + widthOf('✓ Run    pnpm test --filter auth') + 2)
-  assert.equal(rows.length, 4)
-  assert.doesNotMatch(text(rows), /[╭╮╰╯│·|]|CMD|READ|EDIT/u)
-  const run = rows[3]
-  assert.equal(run.spans.find(part => part.text === '✓')?.tone, 'success')
+  // One blank row above the run. The verbs are padded to one width, so the targets start in one column; the duration
+  // follows the command behind a middle dot, and what the call did hangs under the verb on a thin connector.
+  assert.deepEqual(rows.map(textOfRow), ['', '  • Read   src/auth.ts · 1.8s', '  • Edit   src/auth.ts · 1.8s', '    └─ +2 −1',
+    '  • Run    pnpm test --filter auth · 1.8s', '    └─ Run authentication tests'])
+  assert.doesNotMatch(text(rows), /[╭╮╰╯│|✓×]|CMD|READ|EDIT/u)
+  const [, read, edit, counts, run, described] = rows
+  // The status is a dot whose colour tells the outcome.
+  assert.deepEqual([run.spans.find(part => part.text === '•')?.tone, read.spans.find(part => part.text === '•')?.tone], ['success', 'success'])
   // The verb carries its tool category's tone; a file change counts added lines in green and removed lines in red.
   assert.equal(run.spans.find(part => part.text.trim() === 'Run')?.tone, 'toolBash')
-  assert.equal(rows[1].spans.find(part => part.text.trim() === 'Read')?.tone, 'toolRead')
-  assert.equal(rows[2].spans.find(part => part.text === '+2')?.tone, 'success')
-  assert.equal(rows[2].spans.find(part => part.text === '−1')?.tone, 'error')
-  assert.equal(run.spans.find(part => part.text === 'Run authentication tests')?.tone, 'muted')
+  assert.equal(read.spans.find(part => part.text.trim() === 'Read')?.tone, 'toolRead')
+  assert.equal(edit.spans.find(part => part.text.trim() === 'Edit')?.tone, 'toolEdit')
+  assert.equal(counts.spans.find(part => part.text === '+2')?.tone, 'success')
+  assert.equal(counts.spans.find(part => part.text === '−1')?.tone, 'error')
+  // The description is secondary text in a legible grey; the connector and the duration are fainter.
+  assert.equal(described.spans.find(part => part.text === 'Run authentication tests')?.tone, 'description')
+  assert.equal(described.spans.find(part => part.text === '└─ ')?.tone, 'comment')
   assert.equal(run.spans.find(part => part.text === '1.8s')?.tone, 'muted')
-  assert.ok(run.spans.every(part => part.action?.kind === 'inspect-item' && part.action.itemId === 'tool-1'))
-  // Alone, a call starts its description two cells after its own command.
-  assert.match(textOfRow(itemRows(conversation()[3], { width: 100, expanded: false, overrides: {} })[1]), /^ {2}✓ Edit {3}src\/auth\.ts {2}\+2 −1 +1\.8s$/)
-  // A running call keeps its glyph in the accent tone, never the warning tone; an expanded one is the card behind its rail.
+  // Both rows of a call open it.
+  assert.ok([run, described].every(value => value.spans.every(part => part.action?.kind === 'inspect-item' && part.action.itemId === 'tool-1')))
+  // A running call has a ring in the accent tone, never the warning tone; an open one is its title row and the body behind a
+  // dashed rail, with the exit code and the duration after the command.
   const running = itemRows(tool({ settled: false, completedAt: undefined, result: undefined }), { width: 100, expanded: false, overrides: {} })
   assert.equal(running[1].spans.find(part => part.text === '◌')?.tone, 'accent')
-  assert.match(text(itemRows(tool(), { width: 100, expanded: false, overrides: { 'tool-1': true } })), /^ {2}▾ ✓ Run {4}pnpm test --filter auth {2}exit 0 +1\.8s\n {2}┃ Run authentication tests$/m)
+  assert.match(text(itemRows(tool(), { width: 100, expanded: false, overrides: { 'tool-1': true } })), /^ {2}▾ • Run {4}pnpm test --filter auth · exit 0 · 1\.8s\n {2}┇ Run authentication tests$/mu)
 })
 
-test('the description column says what the model said a call does, while it runs, after it succeeds and beside a failure', () => {
-  const at = item => itemRows(item, { width: 100, expanded: false, overrides: {} })[1]
-  assert.match(textOfRow(at(tool({ settled: false, completedAt: undefined, result: undefined }))), /^ {2}◌ Run {4}pnpm test --filter auth {2}Run authentication tests *$/u)
+test('the description row says what the model said a call does, while it runs, after it succeeds and beside a failure', () => {
+  const at = item => itemRows(item, { width: 100, expanded: false, overrides: {} }).slice(1)
+  assert.deepEqual(at(tool({ settled: false, completedAt: undefined, result: undefined })).map(textOfRow), ['  ◌ Run    pnpm test --filter auth', '    └─ Run authentication tests'])
   const failed = at(tool({ result: { card: 'terminal', output: 'FAIL auth.test.ts', exitCode: 1 } }))
-  assert.match(textOfRow(failed), /^ {2}× Run {4}pnpm test --filter auth {2}Run authentication tests · exit 1 +1\.8s$/u)
-  assert.equal(failed.spans[1].tone, 'error')
-  assert.match(textOfRow(at(tool({ result: { card: 'terminal', output: '', signal: 'SIGTERM' } }))), /^ {2}× Run/u)
-  assert.match(textOfRow(at(tool({ result: { card: 'terminal', output: 'ok', exitCode: 0 } }))), /^ {2}✓ Run/u)
-  assert.equal(failed.spans.find(part => part.text.includes('Run authentication tests'))?.tone, 'muted')
-  assert.equal(failed.spans.find(part => part.text === 'exit 1')?.tone, 'error')
-  assert.match(textOfRow(at(tool({ cancelled: true }))), /Run authentication tests · interrupted/u)
+  assert.deepEqual(failed.map(textOfRow), ['  • Run    pnpm test --filter auth · 1.8s', '    └─ Run authentication tests · exit 1'])
+  // A failed call has a red dot, a call ended by a signal too, a successful one a green dot, an interrupted one a yellow dot.
+  const dot = rows => rows[0].spans.find(part => part.text === '•')?.tone
+  assert.equal(dot(failed), 'error')
+  assert.equal(dot(at(tool({ result: { card: 'terminal', output: '', signal: 'SIGTERM' } }))), 'error')
+  assert.equal(dot(at(tool({ result: { card: 'terminal', output: 'ok', exitCode: 0 } }))), 'success')
+  assert.equal(dot(at(tool({ cancelled: true }))), 'warning')
+  assert.equal(failed[1].spans.find(part => part.text.includes('Run authentication tests'))?.tone, 'description')
+  assert.equal(failed[1].spans.find(part => part.text === 'exit 1')?.tone, 'error')
+  assert.match(textOfRow(at(tool({ cancelled: true }))[1]), /Run authentication tests · interrupted$/u)
   // A call view without a description falls back to the call's own description argument, on one line.
   const generic = tool({ args: { description: 'Start the\n  dev server', command: 'pnpm dev' }, call: { card: 'generic', title: 'Run pnpm dev', kind: 'execute' } })
-  assert.match(textOfRow(at(generic)), / {2}Start the dev server +1\.8s$/u)
+  assert.equal(textOfRow(at(generic)[1]), '    └─ Start the dev server')
 })
 
-test('a narrowing tool row keeps a result note beside a shortened command, and gives a description rows of its own', () => {
+test('a narrowing tool row cuts the command in its middle and wraps the description, which is never cut', () => {
   const long = tool({ call: { card: 'terminal', title: 'pnpm exec oxlint packages/core/src/auth.ts --deny-warnings' },
     result: { card: 'terminal', output: 'Found 0 warnings and 0 errors in 2 files.', exitCode: 0 } })
-  const at = width => textOfRow(itemRows(long, { width, expanded: false, overrides: {} })[1])
-  assert.equal(at(200), `  ✓ Run    pnpm exec oxlint packages/core/src/auth.ts --deny-warnings  Found 0 warnings and 0 errors in 2 files.${' '.repeat(84)}1.8s`)
-  // A call the model did not describe keeps its result note on the row; the command gives way.
-  assert.equal(at(90), '  ✓ Run    pnpm exec oxlint packages/cor…  Found 0 warnings and 0 errors in 2 files.  1.8s')
-  assert.equal(at(76), '  ✓ Run    pnpm exec oxlin…  Found 0 warnings and 0 errors in 2 files.  1.8s')
-  // Once the command is down to 16 cells, the note takes the ellipsis.
-  assert.equal(at(40), '  ✓ Run    pnpm e…  Found 0 warni…  1.8s')
-  for (const width of [12, 20, 40, 76, 90, 200]) assert.equal(widthOf(at(width)), width)
-  // A command too long for the shared column does not push the descriptions of its neighbours to the right.
-  const rows = createDocumentRenderer().render([conversation()[3], long], { width: 100, expanded: false, overrides: {} })
-  assert.equal(textOfRow(rows[1]).indexOf('+2 −1'), 2 + widthOf('✓ Edit   src/auth.ts') + 2)
-  // A described command is the main text: it keeps the row, and the description follows under its target, never cut.
+  const at = (item, width) => itemRows(item, { width, expanded: false, overrides: {} }).slice(1).map(textOfRow)
+  // A call the model did not describe says its result in a few words on the connector row.
+  assert.deepEqual(at(long, 200), ['  • Run    pnpm exec oxlint packages/core/src/auth.ts --deny-warnings · 1.8s', '    └─ Found 0 warnings and 0 errors in 2 files.'])
+  // Narrow, the command gives way and the duration stays beside it; the note wraps under the connector.
+  assert.deepEqual(at(long, 40), ['  • Run    pnpm exec oxlint pack… · 1.8s', '    └─ Found 0 warnings and 0 errors in ', '       2 files.'])
+  for (const width of [12, 20, 40, 76, 90, 200]) {
+    const lines = at(long, width)
+    assert.ok(lines.every(value => widthOf(value) <= width), `${width}: ${lines.join('|')}`)
+    assert.equal(lines.slice(1).map(value => value.replace(/^ +(?:└─ )?/u, '')).join('').replace(/\s/gu, ''), 'Found0warningsand0errorsin2files.')
+  }
   const described = tool({ call: { card: 'terminal', title: 'pnpm exec oxlint packages/core/src/auth.ts --deny-warnings', description: 'Lint the auth module' } })
-  const lines = width => itemRows(described, { width, expanded: false, overrides: {} }).slice(1).map(textOfRow)
-  assert.deepEqual(lines(100), ['  ✓ Run    pnpm exec oxlint packages/core/src/auth.ts --deny-warnings  Lint the auth module     1.8s'])
-  assert.deepEqual(lines(60), ['  ✓ Run    pnpm exec oxlint packages/core/src/auth.ts…  1.8s', '           Lint the auth module'])
-  assert.deepEqual(lines(30), ['  ✓ Run    pnpm exec ox…  1.8s', '           Lint the auth ', '           module'])
+  assert.deepEqual(at(described, 100), ['  • Run    pnpm exec oxlint packages/core/src/auth.ts --deny-warnings · 1.8s', '    └─ Lint the auth module'])
+  assert.deepEqual(at(described, 60), ['  • Run    pnpm exec oxlint packages/core/src/auth.t… · 1.8s', '    └─ Lint the auth module'])
+  assert.deepEqual(at(described, 30), ['  • Run    pnpm exec o… · 1.8s', '    └─ Lint the auth module'])
   // A long command with whole words at its end keeps them: the program and the last arguments both show.
   const piped = tool({ call: { card: 'terminal', title: 'find packages -name "*.ts" -newer .last-run -print0 | xargs -0 grep -l expiresAt | sort -u', description: 'List files that touch expiry' } })
-  assert.match(textOfRow(itemRows(piped, { width: 70, expanded: false, overrides: {} })[1]), /^ {2}✓ Run {4}find packages .* … .*sort -u +1\.8s$/)
+  assert.equal(at(piped, 70)[0], '  • Run    find packages -name "*.ts" … | sort -u · 1.8s')
 })
 
-test('messages share the two-cell margin: a prompt stands on a band behind an accent bar, ● marks an answer, and notices get a blank row', () => {
+test('messages share the two-cell margin: a prompt stands on a band behind an accent bar, a dot marks an answer, and notices get a blank row', () => {
   const [user, , , , , answer] = conversation()
   const prompt = itemRows(user, { width: 80, expanded: false, overrides: {} })
   assert.deepEqual(prompt.map(value => textOfRow(value).trimEnd()), ['', '▌ Check authentication, fix expired tokens, and run the tests.'])
@@ -122,12 +119,13 @@ test('messages share the two-cell margin: a prompt stands on a band behind an ac
   assert.deepEqual([prompt[1].spans[0].text, prompt[1].spans[0].tone], ['▌ ', 'accent'])
   assert.ok(prompt[1].spans.slice(1, -1).every(part => part.bold === true))
   const reply = itemRows(answer, { width: 80, expanded: false, overrides: {} })
-  assert.doesNotMatch(text(reply), /● DSH/)
-  assert.equal(textOfRow(reply[1]), '● Authentication fixed')
+  assert.doesNotMatch(text(reply), /• DSH/)
+  assert.equal(textOfRow(reply[1]), '• Authentication fixed')
   assert.equal(reply[1].spans[0].tone, 'accent')
   assert.ok(reply.slice(2).every(value => textOfRow(value) === '' || textOfRow(value).startsWith('  ')))
   const notice = itemRows({ kind: 'notice', id: 'n', text: 'Context compacted', level: 'success', settled: true }, { width: 80, expanded: false, overrides: {} })
-  assert.deepEqual(notice.map(textOfRow), ['', '  ✓ Context compacted'])
+  assert.deepEqual(notice.map(textOfRow), ['', '  • Context compacted'])
+  assert.equal(notice[1].spans.find(part => part.text.startsWith('•'))?.tone, 'success')
 })
 
 test('a code block stands on a band without borders, with a clickable Copy in its header row', () => {
@@ -167,8 +165,10 @@ test('the header is one row and goal, plan and tasks share one muted indicator r
     assert.doesNotMatch(h.text(), /5a4a51d6|GOAL|PLAN|TASKS/)
     assert.match(h.text(), /^ +\/workspace\/harness · deepseek\/reasoner high$/mu)
     // Goal and plan on the left; on the right the checklist as a one-colour meter, its count and the task in progress.
-    assert.equal(lines(h)[1], `◎ Ship OAuth refresh-token rotation   ▣ plan${' '.repeat(39)}tasks ▰▱ 1/2 · b`)
-    const indicator = h.rows()[1]
+    // With rows to spare, a blank row separates the header, the indicator row and the conversation.
+    assert.deepEqual([lines(h)[1], lines(h)[3]], ['', ''])
+    assert.equal(lines(h)[2], `◎ Ship OAuth refresh-token rotation   ▣ plan${' '.repeat(39)}tasks ▰▱ 1/2 · b`)
+    const indicator = h.rows()[2]
     const tone = text => indicator.spans.find(part => part.text.includes(text))?.tone
     assert.deepEqual([tone('◎'), tone('Ship OAuth'), tone('▣'), tone('plan'), tone('▰'), tone('▱'), tone('1/2'), tone('b')],
       ['accent', 'text', 'brand', 'muted', 'accent', 'comment', 'muted', 'text'])
@@ -247,7 +247,7 @@ test('the palette groups an empty query by kind, and the Terminal tab by functio
   assert.deepEqual(headers, ['AGENT', 'SKILLS', 'TERMINAL'])
   assert.deepEqual(all.entries.slice(0, 4).map(entry => entry.name), ['compact', 'goal', 'plan', 'code-review'])
   const terminal = paletteView(entries, '/', 'terminal')
-  assert.deepEqual(terminal.rows.filter(value => value.kind === 'header').map(value => value.label), ['SESSION', 'MODEL & CONTEXT', 'INPUT', 'VIEW', 'SETTINGS'])
+  assert.deepEqual(terminal.rows.filter(value => value.kind === 'header').map(value => value.label), ['SESSION', 'MODEL & CONTEXT', 'VIEW', 'SETTINGS'])
   assert.deepEqual(terminal.entries.slice(0, 8).map(entry => entry.name), ['new', 'resume', 'sessions', 'fork', 'rename', 'export', 'clear', 'exit'])
   assert.ok(terminal.entries.every(entry => entry.origin === 'local' && entry.group !== undefined))
   // A typed query keeps the ranking, without headings.
@@ -466,14 +466,16 @@ test('a folded settled thought is one row and opens behind a rail; live reasonin
   const untimed = itemRows({ ...thought, reasoningStartedAt: undefined, reasoningEndedAt: undefined }, { width: 100, expanded: false, overrides: {} })
   assert.equal(textOfRow(untimed[1]), '  ✦ Thought · 2 lines')
   const opened = itemRows({ ...thought, reasoningStartedAt: undefined, reasoningEndedAt: undefined }, { width: 100, expanded: false, overrides: { 'reasoning:th': true } })
-  assert.deepEqual(opened.map(textOfRow), ['', '  ▾ Thought · 2 lines', '  ┃ plan the change', '  ┃ check the tests'])
+  assert.deepEqual(opened.map(textOfRow), ['', '  ▾ Thought · 2 lines', '  ┊ plan the change', '  ┊ check the tests'])
   assert.doesNotMatch(text(opened), /—/)
-  // A thought followed by tool calls forms one list without blank rows; an answer after a thought keeps the thought row
-  // above its ● row.
+  // On a short terminal a thought followed by tool calls forms one list without blank rows, and an answer after a thought
+  // keeps the thought row above its dot row; with rows to spare a blank row separates the thought from the answer.
   const listed = createDocumentRenderer().render([thought, tool()], { width: 100, expanded: false, overrides: {} })
-  assert.deepEqual(listed.map(value => textOfRow(value).trim().split(/ {2,}/u)[0]), ['', '✦ Thought · 2.5s', '✓ Run'])
+  assert.deepEqual(listed.map(value => textOfRow(value).trim().split(/ {2,}/u)[0]), ['', '✦ Thought · 2.5s', '• Run', '└─ Run authentication tests'])
   const answered = itemRows({ ...thought, text: 'Done.' }, { width: 100, expanded: false, overrides: {} })
-  assert.deepEqual(answered.map(value => textOfRow(value).trimEnd()), ['', '  ✦ Thought · 2.5s', '● Done.'])
+  assert.deepEqual(answered.map(value => textOfRow(value).trimEnd()), ['', '  ✦ Thought · 2.5s', '• Done.'])
+  const spaced = itemRows({ ...thought, text: 'Done.' }, { width: 100, expanded: false, overrides: {}, terminalRows: 30 })
+  assert.deepEqual(spaced.map(value => textOfRow(value).trimEnd()), ['', '  ✦ Thought · 2.5s', '', '• Done.'])
   // Still thinking, the live label stays.
   const live = itemRows({ ...thought, settled: false, reasoningEndedAt: undefined }, { width: 100, expanded: false, overrides: {}, tick: 0, now: 5000 })
   assert.match(textOfRow(live[1]), /Thinking… · 4s · 2 lines/)
@@ -539,10 +541,10 @@ test('the tasks panel: goal and plan, the checklist with a meter and one row per
   assert.match(all[0], /^◎ Make expired tokens fail closed +goal · active$/u)
   assert.equal(all[1], '▣ plan')
   assert.equal(all[3], 'Checklist   ▰▱▱  1 of 3')
-  assert.match(all[4], /^ {2}✓ {2}Inspect token validation +done$/u)
+  assert.match(all[4], /^ {2}• {2}Inspect token validation +done$/u)
   assert.match(all[5], /^ {2}◐ {2}Add expiry checks +in progress$/u)
   assert.equal(all[6], '  ○  Run the focused tests')
-  // The check of a finished task stays green; the task in progress is bold in the accent tone.
+  // The dot of a finished task is green; the task in progress is bold in the accent tone.
   assert.equal(rows[4].spans[0].tone, 'success'); assert.equal(rows[5].spans[0].tone, 'accent'); assert.equal(rows[5].spans[1].bold, true)
   assert.match(all[8], /^Background jobs +none$/u); assert.match(all[9], /^Queued messages +none$/u)
   assert.ok(rows.every(value => widthOf(textOfRow(value)) <= 80))
@@ -601,4 +603,32 @@ test('a wide terminal sets the session preview beside the session list; a narrow
   } finally { wide.h.dispose() }
   const narrow = setup({ picker }, 90, 30)
   try { assert.ok(lines(narrow.h).some(value => /^── Session preview ─+$/u.test(value))); assert.doesNotMatch(narrow.h.text(), / │ /u) } finally { narrow.h.dispose() }
+})
+
+test('a terminal with rows to spare separates one-row items, the header, the indicator row and the composer with blank rows', () => {
+  const items = conversation().slice(1, 5)
+  const tight = createDocumentRenderer().render(items, { width: 100, expanded: false, overrides: {}, terminalRows: 27 }).map(textOfRow)
+  const roomy = createDocumentRenderer().render(items, { width: 100, expanded: false, overrides: {}, terminalRows: 28 }).map(textOfRow)
+  // Below 28 rows the thought and the calls are a list without blank rows, under the blank row that opens the document.
+  assert.deepEqual(tight, ['', '  ✦ Thought · 1 line', '  • Read   src/auth.ts · 1.8s', '  • Edit   src/auth.ts · 1.8s', '    └─ +2 −1',
+    '  • Run    pnpm test --filter auth · 1.8s', '    └─ Run authentication tests'])
+  // From 28 rows each has a blank row above it, except the first item, which starts under the blank row below the header.
+  assert.deepEqual(roomy, ['  ✦ Thought · 1 line', '', '  • Read   src/auth.ts · 1.8s', '', '  • Edit   src/auth.ts · 1.8s', '    └─ +2 −1', '',
+    '  • Run    pnpm test --filter auth · 1.8s', '    └─ Run authentication tests'])
+  const transcript = fixture().transcript; transcript.items = conversation()
+  const tall = setup({ transcript }, 100, 30)
+  try {
+    const all = lines(tall.h)
+    // One blank row follows the header, and the conversation starts right under it.
+    assert.match(all[0], /^ DSH /); assert.equal(all[1], ''); assert.equal(all.findIndex(value => value.startsWith('▌ Check authentication')), 2)
+    assert.equal(all.findIndex(value => value.includes('• Edit')) - all.findIndex(value => value.includes('• Read')), 2)
+    // The composer's top rule has a blank row above it; the status row stays under the bottom rule.
+    assert.equal(all.at(-5), ''); assert.match(all.at(-4), /^─+$/u); assert.equal(all.at(-3), '›  Ask anything'); assert.match(all.at(-2), /^─+$/u)
+  } finally { tall.h.dispose() }
+  const short = setup({ transcript }, 100, 24)
+  try {
+    const all = lines(short.h)
+    assert.equal(all.findIndex(value => value.startsWith('▌ Check authentication')), 2)
+    assert.equal(all.findIndex(value => value.includes('• Edit')) - all.findIndex(value => value.includes('• Read')), 1)
+  } finally { short.h.dispose() }
 })

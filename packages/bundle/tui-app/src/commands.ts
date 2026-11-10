@@ -1,7 +1,6 @@
 /**
  * Slash commands the chat handles itself, beside the plugin-owned registry
- * (`ctx.commands`) that supplies `/goal`, `/plan`, `/compact`, `/feedback`,
- * and whatever else the composed profile registers. Both sets share one
+ * (`ctx.commands`) that supplies `/goal`, `/plan`, `/compact`, and whatever else the composed profile registers. Both sets share one
  * discovery popup and one dispatch path.
  * @module @deepseek-ai/dsh-tui-app/commands
  */
@@ -9,7 +8,7 @@
 import type { CommandDescriptor } from '@deepseek-ai/dsh-commands'
 
 /** What a chat-owned command acts on; the palette's Terminal tab lists them under these headings. */
-export type CommandGroup = 'session' | 'model' | 'input' | 'view' | 'settings'
+export type CommandGroup = 'session' | 'model' | 'view' | 'settings'
 
 /** One command the popup offers. */
 export interface CommandEntry {
@@ -37,41 +36,26 @@ export const LOCAL_COMMANDS: readonly CommandEntry[] = Object.freeze([
   { name: 'effort', description: 'choose a model-supported reasoning effort', hint: 'effort | default', origin: 'local', group: 'model' },
   { name: 'status', description: 'session, preset, model and context usage', origin: 'local', group: 'model' },
   { name: 'context', description: 'inspect context and accumulated token usage', origin: 'local', group: 'model' },
-  { name: 'attach', description: 'stage a local file for the next prompt', hint: 'path', origin: 'local', group: 'input' },
-  { name: 'image', description: 'stage an image using Web image admission', hint: 'path', origin: 'local', group: 'input' },
-  { name: 'paste-image', description: 'stage a clipboard image (Alt+V); never auto-send', origin: 'local', group: 'input' },
-  { name: 'detach', description: 'remove staged attachments', origin: 'local', group: 'input' },
-  { name: 'editor', description: 'edit draft in VISUAL/EDITOR (Ctrl+G); never auto-send', origin: 'local', group: 'input' },
-  { name: 'queue', description: 'queue for the next turn, send now, or remove, edit or steer queued messages', hint: 'add text | send | remove N | steer N | edit N text', origin: 'local', group: 'input' },
-  { name: 'steer', description: 'deliver input at the next step (what Enter does while a turn runs)', hint: 'message', origin: 'local', group: 'input' },
-  { name: 'stop', description: 'cancel the active turn or command', origin: 'local', group: 'input' },
-  { name: 'diff', description: 'review recorded file changes with numbered hunks', origin: 'local', group: 'view' },
-  { name: 'transcript', description: 'browse messages and expand individual tool calls', origin: 'local', group: 'view' },
   { name: 'expand', description: 'expand or collapse all tool details (display only)', origin: 'local', group: 'view' },
   { name: 'jobs', description: 'show session background jobs', origin: 'local', group: 'view' },
   { name: 'tasks', description: 'inspect goal, plan, tasks and background jobs', origin: 'local', group: 'view' },
   { name: 'permissions', description: 'inspect current permission policy and pending requests', origin: 'local', group: 'view' },
   { name: 'help', description: 'commands and keyboard shortcuts', origin: 'local', group: 'view' },
   { name: 'theme', description: 'choose terminal colours, never model settings', hint: 'dark | light | mono', origin: 'local', group: 'settings' },
-  { name: 'mouse', description: 'mouse scrolling and buttons; off restores terminal selection', hint: 'on | off', origin: 'local', group: 'settings' },
-  { name: 'links', description: 'clickable URL and file references via OSC 8', hint: 'on | off', origin: 'local', group: 'settings' },
-  { name: 'notify', description: 'attention notifications when the terminal is unfocused', hint: 'off | bell | desktop', origin: 'local', group: 'settings' },
-  { name: 'title', description: 'dynamic terminal tab title', hint: 'on | off', origin: 'local', group: 'settings' },
-  { name: 'layout', description: 'adaptive detail pane or single-column layout', hint: 'auto | single | split', origin: 'local', group: 'settings' },
   { name: 'cwd', description: 'show this session’s recorded working directory', origin: 'local', group: 'settings' },
   { name: 'copy', description: 'copy last answer or code; code blocks also have a mouse Copy button', hint: 'code | raw', origin: 'local', group: 'settings' },
 ])
 
 /** Palette headings of the chat-owned command groups, in display order. */
 export const COMMAND_GROUPS: readonly { id: CommandGroup; label: string }[] = Object.freeze([
-  { id: 'session', label: 'Session' }, { id: 'model', label: 'Model & context' }, { id: 'input', label: 'Input' },
+  { id: 'session', label: 'Session' }, { id: 'model', label: 'Model & context' },
   { id: 'view', label: 'View' }, { id: 'settings', label: 'Settings' },
 ])
 
 /**
  * Merge local commands, registry commands, and user-invocable skills into one
- * sorted, de-duplicated list; a registry name wins except the reserved /stop
- * and /exit controls, and any command name wins over a skill of that name.
+ * sorted, de-duplicated list; a registry name wins except the reserved /exit
+ * control, and any command name wins over a skill of that name.
  * @param registry - commands the composed registry offers the current session.
  * @param skills - user-invocable skills of the current session, sent as `/name` prompts.
  * @returns the popup entries sorted by name.
@@ -84,7 +68,7 @@ export function mergeCommands(
   for (const skill of skills) byName.set(skill.name, { name: skill.name, description: skill.description.replaceAll(/\s+/gu, ' ').trim(), hint: 'task', origin: 'skill' })
   for (const local of LOCAL_COMMANDS) byName.set(local.name, local)
   for (const descriptor of registry) {
-    if (descriptor.name === 'stop' || descriptor.name === 'exit' || descriptor.name === 'reasoning') continue
+    if (descriptor.name === 'exit' || descriptor.name === 'reasoning') continue
     byName.set(descriptor.name, {
       name: descriptor.name,
       description: descriptor.description,

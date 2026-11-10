@@ -4,9 +4,9 @@
  * configuration itself. Those operations belong to the shared business API.
  */
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, createReadStream, mkdirSync } from 'node:fs'
-import { readFile, stat, writeFile } from 'node:fs/promises'
-import { basename, dirname, extname, resolve } from 'node:path'
+import { appendFileSync, mkdirSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
 import { createElement } from 'react'
 import { render, type Instance } from 'ink'
 import type { Context } from '@deepseek-ai/cordis'
@@ -14,7 +14,6 @@ import z from '@deepseek-ai/schemastery'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { parseCommand } from '@deepseek-ai/dsh-commands'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
@@ -29,7 +28,6 @@ import { foldPermissionAudit } from './permission-audit.ts'
 import type { AskUserQuestionAnswer } from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-cmdline'
-import type {} from '@deepseek-ai/dsh-client-file-upload'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-goal'
@@ -51,11 +49,11 @@ import { backgroundWaits, InterruptRecovery, submitMode, wakeParked } from './qu
 import { createStore, projectionsAfter, queueOf, type Picker, type Store } from './store.ts'
 import { addNotice, applyChunk, applyEvent, emptyTranscript, endStream, splitSettled, type Presenters } from './transcript.ts'
 import { themeName } from './theme.ts'
-import { contentSummary, safeText } from './terminal.ts'
+import { safeText } from './terminal.ts'
 import { ANIMATION_ASSETS, SceneAnimations, type SceneAssetError } from './animation.ts'
 
 export const name = 'tui-runner'
-export const inject = ['agentDefaultModel', 'agents', 'attachments', 'fileUploads', 'sessionController', 'sessionQuery', 'sessionProjections', 'sessions']
+export const inject = ['agentDefaultModel', 'agents', 'attachments', 'sessionController', 'sessionQuery', 'sessionProjections', 'sessions']
 /** Startup request for the terminal chat, normally supplied by `tui-startup`. */
 export interface Config {
   /** Opening prompt submitted to the new session at startup. */
@@ -113,7 +111,7 @@ export async function run(ctx: Context, config: Config, io: TuiIo): Promise<void
     layout: process.env.DSH_TUI_LAYOUT === 'single' ? 'single' : process.env.DSH_TUI_LAYOUT === 'split' ? 'split' : 'auto',
     links: process.env.DSH_TUI_LINKS !== 'off' && process.env.TERM !== 'dumb',
     notifications: process.env.DSH_TUI_NOTIFY === 'off' ? 'off' : process.env.DSH_TUI_NOTIFY === 'desktop' ? 'desktop' : 'bell',
-    terminalTitle: process.env.DSH_TUI_TITLE !== 'off', motion: process.env.DSH_TUI_MOTION !== 'off', editorRequest: 0,
+    terminalTitle: process.env.DSH_TUI_TITLE !== 'off', motion: process.env.DSH_TUI_MOTION !== 'off',
     expandedTools: false, hint: undefined, exiting: false, busy: undefined, picker: undefined,
     queue: [], jobs: [], projections: {}, attachments: [], viewEpoch: 0, hiddenBefore: 0, recoveredInput: undefined, skills: [],
   })
@@ -237,9 +235,9 @@ export async function run(ctx: Context, config: Config, io: TuiIo): Promise<void
   }
   const requireSwitchable = (): void => {
     if (current?.status === 'running' || store.getState().pending.length > 0) {
-      throw new Error('Stop the current turn with Esc or /stop before switching sessions. No work has been discarded.')
+      throw new Error('Stop the current turn with Esc before switching sessions. No work has been discarded.')
     }
-    if (store.getState().attachments.length > 0) throw new Error('Send or /detach staged attachments before switching sessions.')
+    if (store.getState().attachments.length > 0) throw new Error('Send staged attachments, or remove them with ×, before switching sessions.')
   }
   const belongsToCurrent = (agent: Agent): boolean => {
     let candidate: Agent | undefined = agent
@@ -422,30 +420,6 @@ export async function run(ctx: Context, config: Config, io: TuiIo): Promise<void
     store.update((state) => { state.selection = selection; state.picker = undefined })
     notice(`Reasoning effort: ${selection.reasoningEffort ?? 'provider default'}`, 'success')
   }
-  const stageFile = async (raw: string, image: boolean): Promise<void> => {
-    if (raw === '') throw new UsageError(`/${image ? 'image' : 'attach'} needs a path`, `/${image ? 'image' : 'attach'} <path>`)
-    const path = resolve(store.getState().cwd, raw.replace(/^(["'])(.*)\1$/u, '$2'))
-    const info = await stat(path)
-    if (!info.isFile()) throw new Error('Attachment must be a regular file.')
-    const agent = requireAgent()
-    if (image) {
-      const mediaTypes: Partial<Record<string, ImageMediaType>> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' }
-      const mediaType = mediaTypes[extname(path).toLowerCase()]
-      if (mediaType === undefined) throw new Error('Supported image extensions: png, jpg, jpeg, webp, gif.')
-      if (info.size > ctx.attachments.imageLimits.maxMessageImageBytes) throw new Error('Image exceeds the configured Web image admission limit.')
-      const data = (await readFile(path, { signal: commandAbort?.signal ?? lifetime.signal })).toString('base64')
-      store.update((state) => { state.attachments.push({ name: basename(path), part: { type: 'image', mediaType, data, name: basename(path) } }) })
-    } else {
-      const signal = commandAbort?.signal ?? lifetime.signal
-      const stream = createReadStream(path, { signal })
-      try {
-        const receipt = await ctx.fileUploads.uploadStream({ sessionId: agent.id, data: stream, name: basename(path), signal })
-        store.update((state) => { state.attachments.push({ name: basename(path), part: { type: 'file', receiptId: receipt.receiptId } }) })
-      } finally { stream.destroy() }
-    }
-    // In the terminal the staged row above the composer confirms it.
-    if (!tty) notice(`Attached ${basename(path)}. Send a prompt, or /detach to remove staged files.`, 'success')
-  }
   const stageClipboard = async (): Promise<void> => {
     const agent = requireAgent(), epoch = store.getState().viewEpoch
     const signal = commandAbort?.signal ?? lifetime.signal
@@ -454,7 +428,7 @@ export async function run(ctx: Context, config: Config, io: TuiIo): Promise<void
     lifetime.signal.throwIfAborted()
     if (current !== agent || epoch !== store.getState().viewEpoch) throw new Error('Session changed while reading the clipboard. Nothing was attached; paste again in the intended session.')
     const name = `clipboard-${randomUUID().slice(0, 8)}.png`
-    // Identical image PromptContentPart to /image and Web. Admission is still
+    // Identical image PromptContentPart to Web. Admission is still
     // performed by the shared controller at send time, including total limits.
     store.update((state) => { state.attachments.push({ name, part: { type: 'image', mediaType: image.mediaType, data: image.data.toString('base64'), name } }); state.hint = `Image staged: ${image.width}×${image.height}. Add a prompt and send; × removes it.` })
   }
@@ -471,7 +445,7 @@ export async function run(ctx: Context, config: Config, io: TuiIo): Promise<void
       `Accumulated usage: ${JSON.stringify(s.projections.tokenUsage ?? {})}`].join('\n')
   }
   /**
-   * Empty Enter and `/queue send` force pending human input. Steering held behind
+   * Empty Enter forces pending human input. Steering held behind
    * a command or job wait moves those waits to the background, so the agent reads it
    * at once and is told when the jobs finish; anything else interrupts active work,
    * then wakes the pending input.
@@ -506,20 +480,6 @@ export async function run(ctx: Context, config: Config, io: TuiIo): Promise<void
         store.update((state) => { state.hint = result.confirmed ? 'Copied original text to clipboard.' : 'Copy sent to terminal via OSC 52; check terminal clipboard permissions.' })
         return true
       }
-      case 'paste-image': await stageClipboard(); return true
-      case 'editor':
-        if (!tty) throw new Error('External editing requires an interactive terminal.')
-        if (arg !== '') throw new Error('Use /editor without arguments, or Ctrl+G to edit the current draft.')
-        store.update((state) => { state.editorRequest = (state.editorRequest ?? 0) + 1 }); return true
-      case 'layout':
-        if (!['auto', 'single', 'split'].includes(arg)) throw new UsageError('/layout needs auto, single or split', '/layout auto | single | split')
-        store.update((state) => { state.layout = arg as 'auto' | 'single' | 'split' }); return true
-      case 'notify':
-        if (!['off', 'bell', 'desktop'].includes(arg)) throw new UsageError('/notify needs off, bell or desktop', '/notify off | bell | desktop')
-        store.update((state) => { state.notifications = arg as 'off' | 'bell' | 'desktop'; state.hint = `Notifications: ${arg}. Sent only when the terminal reports that it is unfocused.` }); return true
-      case 'links': case 'title':
-        if (arg !== 'on' && arg !== 'off') throw new UsageError(`/${name} needs on or off`, `/${name} on | off`)
-        store.update((state) => { if (name === 'links') state.links = arg === 'on'; else state.terminalTitle = arg === 'on' }); return true
       case 'help':
         if (tty) store.update((state) => { state.panel = 'help' })
         else notice(controller.commands().map(entry => `/${entry.name.padEnd(14)} ${entry.description}`).join('\n'))
@@ -540,9 +500,9 @@ export async function run(ctx: Context, config: Config, io: TuiIo): Promise<void
         })) })
         return true
       }
-      case 'transcript': case 'diff': case 'permissions': case 'tasks':
-        if (tty) store.update((state) => { state.panel = name === 'diff' ? 'changes' : name })
-        else notice(name === 'permissions' ? `Approval policy: ${store.getState().approvalPolicy ?? 'unavailable'}. /auto-approve status and /auto-approve history inspect shared Smart review.` : name === 'tasks' ? JSON.stringify({ jobs: store.getState().jobs, goal: store.getState().projections.goal, plan: store.getState().projections.plan }, null, 2) : store.getState().transcript.items.map(item => formatItem(item, true, true)).join('\n'))
+      case 'permissions': case 'tasks':
+        if (tty) store.update((state) => { state.panel = name })
+        else notice(name === 'permissions' ? `Approval policy: ${store.getState().approvalPolicy ?? 'unavailable'}. /auto-approve status and /auto-approve history inspect shared Smart review.` : JSON.stringify({ jobs: store.getState().jobs, goal: store.getState().projections.goal, plan: store.getState().projections.plan }, null, 2))
         return true
       case 'theme':
         if (arg === '') {
@@ -553,15 +513,6 @@ export async function run(ctx: Context, config: Config, io: TuiIo): Promise<void
           store.update((state) => { state.theme = process.env.NO_COLOR === undefined ? themeName(arg) : 'mono'; state.picker = undefined })
         }
         return true
-      case 'mouse': {
-        if (arg !== '' && !['on', 'off'].includes(arg)) throw new UsageError('/mouse takes on, off or nothing', '/mouse [on | off]')
-        const enabled = arg === '' ? store.getState().mouse === false : arg === 'on'
-        store.update((state) => { state.mouse = enabled })
-        notice(enabled
-          ? 'Wheel scrolling on. Your terminal usually still selects text with Shift held.'
-          : 'Wheel scrolling off. The terminal handles the mouse; PgUp/PgDn and Shift+↑/↓ scroll.', 'success')
-        return true
-      }
       case 'skills':
         if (!tty || arg !== '') return false
         await pickSkills(commandAbort?.signal ?? lifetime.signal); return true
@@ -573,7 +524,6 @@ export async function run(ctx: Context, config: Config, io: TuiIo): Promise<void
         })
         return true
       case 'exit': case 'quit': controller.exit(); return true
-      case 'stop': controller.cancel(); return true
       case 'expand': store.update((state) => { state.expandedTools = !state.expandedTools }); return true
       case 'resume': await resume(arg); return true
       case 'sessions': requireSwitchable(); await browseSessions(arg === '--all'); return true
@@ -590,44 +540,9 @@ export async function run(ctx: Context, config: Config, io: TuiIo): Promise<void
         const fork = await backend.api.fork({ sessionId: requireAgent().id })
         await attach(await backend.resume(fork.sessionId)); notice(`Forked as ${fork.sessionId}`, 'success'); return true
       }
-      case 'steer': {
-        const staged = [...store.getState().attachments]
-        await backend.prompt(requireAgent(), raw.replace(/^\s/u, ''), commandAbort?.signal ?? lifetime.signal, 'steer', staged.map(file => file.part))
-        store.update((state) => { state.attachments = state.attachments.filter(file => !staged.includes(file)) })
-        return true
-      }
-      case 'queue': {
-        const queue = store.getState().queue.filter(item => item.placement !== 'context')
-        if (arg === '') {
-          notice(queue.length === 0 ? 'Queue is empty.' : queue.map((item, index) => `${index + 1}. [${item.placement}] ${contentSummary(item.message.content)}`).join('\n'))
-          return true
-        }
-        if (arg === 'send') { await sendQueue(); return true }
-        const added = /^add[ \t]+([\s\S]+)$/u.exec(raw.trimStart())
-        if (added !== null) {
-          // Explicit next-turn delivery, whatever the turn is doing: the
-          // keyboard twin of Tab in the composer.
-          const staged = [...store.getState().attachments]
-          await backend.prompt(requireAgent(), added[1] ?? '', commandAbort?.signal ?? lifetime.signal, 'queue', staged.map(file => file.part))
-          store.update((state) => { state.attachments = state.attachments.filter(file => !staged.includes(file)) })
-          return true
-        }
-        const match = /^(remove|steer|edit)[ \t]+(\d+)(?:[ \t]([\s\S]*))?$/u.exec(raw.trimStart())
-        if (match === null) throw new UsageError('/queue does not know that action', '/queue [add text | send | remove N | steer N | edit N replacement text]')
-        const item = queue[Number(match[2]) - 1]
-        if (item === undefined) throw new Error('That queue item has already been consumed or does not exist.')
-        await backend.api.updateQueue({ sessionId: requireAgent().id, itemId: item.id,
-          action: match[1] === 'edit' ? { kind: 'edit', content: [{ type: 'text', text: match[3] ?? '' }] } : { kind: match[1] === 'remove' ? 'remove' : 'steer' } })
-        return true
-      }
       case 'jobs':
         if (tty) store.update((state) => { state.panel = 'jobs'; state.selectedJob = undefined; state.jobDetail = undefined })
         else notice(store.getState().jobs.map(job => `${job.id} [${job.status}] ${job.label}`).join('\n') || 'No background jobs.')
-        return true
-      case 'attach': case 'image': await stageFile(arg, name === 'image'); return true
-      case 'detach':
-        store.update((state) => { state.attachments = []; if (tty) state.hint = 'Staged attachments removed.' })
-        if (!tty) notice('Staged attachments removed.')
         return true
       case 'export': {
         if (arg === '') throw new UsageError('/export needs a new file path; existing files are never overwritten', '/export <path.md>')
@@ -656,6 +571,11 @@ export async function run(ctx: Context, config: Config, io: TuiIo): Promise<void
     },
     copyText: copyLocal,
     pasteImage: stageClipboard,
+    async removeQueued(index) {
+      const item = store.getState().queue.filter(entry => entry.placement !== 'context')[index]
+      if (item === undefined) throw new Error('That queue item has already been consumed or does not exist.')
+      await backend.api.updateQueue({ sessionId: requireAgent().id, itemId: item.id, action: { kind: 'remove' } })
+    },
     editPrompt: (text, signal) => editDraft(text, { signal: AbortSignal.any([signal, lifetime.signal]) }),
     searchSessions: (query, signal) => browser.search(query, AbortSignal.any([signal, lifetime.signal])),
     previewSession: (id, signal) => browser.preview(id, AbortSignal.any([signal, lifetime.signal])),
@@ -666,8 +586,8 @@ export async function run(ctx: Context, config: Config, io: TuiIo): Promise<void
       await applyStartupSelection()
       const agent = requireAgent()
       const staged = [...store.getState().attachments]
-      // Enter during a turn steers it (read at the next step); Tab and
-      // `/queue add` hold the prompt for the next turn.
+      // Enter during a turn steers it (read at the next step); Tab holds
+      // the prompt for the next turn.
       await backend.prompt(agent, text, lifetime.signal, submitMode(agent.status === 'running', gesture), staged.map(file => file.part))
       store.update((state) => { state.attachments = state.attachments.filter(file => !staged.includes(file)) })
       // User rows come only from accepted durable events. Failed admissions
@@ -680,7 +600,6 @@ export async function run(ctx: Context, config: Config, io: TuiIo): Promise<void
       if (parsed === undefined) throw new Error(`Not a command: ${line}`)
       const name = parsed.name === 'q' || parsed.name === 'quit' ? 'exit' : parsed.name
       if (name === 'reasoning') throw new Error('Reasoning is always visible when provided by the model. /effort selects the model-supported effort.')
-      if (name === 'stop') { controller.cancel(); return }
       if (name === 'exit') { controller.exit(); return }
       if (commandAbort !== undefined) throw new Error('A command is already running. Esc cancels it.')
       lifetime.signal.throwIfAborted()
@@ -692,8 +611,8 @@ export async function run(ctx: Context, config: Config, io: TuiIo): Promise<void
       let skillPrompt: string | undefined
       try {
         const registry = ctx.get('commands')
-        // Same executor and attachment admission as Web. Only /stop and /exit
-        // are reserved safety commands; other scoped plugin names take priority.
+        // Same executor and attachment admission as Web. Only /exit is a
+        // reserved safety command; other scoped plugin names take priority.
         // Empty /skills and /permission open terminal pickers instead of chat listings.
         const registered = current !== undefined && registry?.find(current, name) !== undefined && !(tty && (name === 'skills' || (name === 'permission' && parsed.rawInput.trim() === '')))
         if (registered || !(await localCommand(name, parsed.rawInput))) {

@@ -1846,7 +1846,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       },
     ],
     ownerProps: [
-      'export interface PendingQuestion {\n  kind: \'question\'\n  id: string\n  questions: AskUserQuestionItem[]\n  resolve(answer: AskUserQuestionAnswer): void\n  reject(error: unknown): void\n}',
+      '/** An `ask_user` request awaiting answers; `reject` fails the tool call. */\nexport interface PendingQuestion {\n  kind: \'question\'\n  id: string\n  questions: AskUserQuestionItem[]\n  resolve(answer: AskUserQuestionAnswer): void\n  reject(error: unknown): void\n}',
       '/**\n * A request narrowed to the `plan-review` presentation intent: everything the\n * decision card renders and answers with, so the panel never re-reads the\n * request fields. `approve` and `decline` are the asker\'s own options — an\n * answer must carry one of those labels verbatim — and `plan` is the markdown\n * body under review.\n */\nexport interface PlanReview {\n  /** The reviewed question\'s id, echoed in the answer. */\n  id: string\n  /** The question text, kept as the card\'s accessible name. */\n  question: string\n  /** The plan markdown under review. */\n  plan: string\n  /** Logged tool invocation used to reopen this plan. */\n  callId?: ToolCallId\n  /** The option that approves the plan. */\n  approve: QuestionOption\n  /** The option that declines it; absent when the asker offered no other option. */\n  decline?: QuestionOption\n}',
     ],
     ownerPropsReferences: [

@@ -15,7 +15,7 @@ import type { CopyResult } from './clipboard.ts'
 import { codeBlocks } from './code-blocks.ts'
 import { isNamingCommand, PALETTE_TABS, paletteView, type CommandEntry, type PaletteTab } from './commands.ts'
 import { Screen } from './components.tsx'
-import { compactingRows, createDocumentRenderer, layaPassRows, searchRows } from './document.ts'
+import { compactingRows, createDocumentRenderer, layaPassRows, ROOMY_TERMINAL_ROWS, searchRows } from './document.ts'
 import { emptyUndo, redo, remember, undo } from './editor-history.ts'
 import { edit, editorAtEnd, emptyEditor, insertText, moveLine, selectionOf, type EditorState } from './editor.ts'
 import { moveVisual } from './layout.ts'
@@ -81,7 +81,7 @@ const HINT_TTL_MS = 5000
 const SESSIONS_SIDE_MIN_WIDTH = 96
 
 /** Title of an in-page inspector panel. */
-function panelName(panel: Exclude<Panel, 'transcript' | 'changes'>): string {
+function panelName(panel: Exclude<Panel, 'transcript'>): string {
   switch (panel) {
     case 'context': return 'Session status'
     case 'permissions': return 'Permissions'
@@ -108,6 +108,8 @@ export interface Controller {
   report: (error: unknown) => void
   copyText?(text: string, signal?: AbortSignal): Promise<CopyResult>
   pasteImage?(): Promise<void>
+  /** Removes the user-queued message at this position of the composer's queue rows. */
+  removeQueued?(index: number): Promise<void>
   editPrompt?: (text: string, signal: AbortSignal) => Promise<string>
   searchSessions?(query: string, signal: AbortSignal): Promise<SessionSearch>
   previewSession?(id: string, signal: AbortSignal): Promise<SessionPreview>
@@ -314,8 +316,7 @@ export function App({ store, controller, terminal, animations }: {
     }
   }, [state.sessionId, state.title, state.status, state.pending, state.terminalTitle, state.notifications, stdout])
 
-  // External editor handoff (/editor or Ctrl+G)
-  const lastEditorReq = useRef(state.editorRequest ?? 0)
+  // External editor handoff (Ctrl+G)
   const runExternalEditor = async (): Promise<void> => {
     const editPrompt = controller.editPrompt
     if (editPrompt === undefined) return
@@ -338,14 +339,6 @@ export function App({ store, controller, terminal, animations }: {
       controller.report(error instanceof Error ? error : new Error(String(error)))
     }
   }
-
-  useEffect(() => {
-    const req = state.editorRequest ?? 0
-    if (req > lastEditorReq.current && state.busy === undefined) {
-      lastEditorReq.current = req
-      void runExternalEditor()
-    }
-  }, [state.editorRequest, state.busy])
 
   // The shared tick runs while work is in progress, while the empty conversation plays the welcome whale, and while a jobs
   // or tasks panel shows the running time of a live job. It follows the visible conversation, not the transcript: /clear
@@ -383,15 +376,14 @@ export function App({ store, controller, terminal, animations }: {
     [state.transcript.items, state.hiddenBefore],
   )
 
-  // Transcript browsing and the change review open every tool; the conversation keeps them on one row each.
-  const expandAll = state.expandedTools || state.panel === 'transcript' || state.panel === 'changes'
+  // Transcript browsing opens every tool; the conversation keeps them on one row each.
+  const expandAll = state.expandedTools || state.panel === 'transcript'
   const liveDocRows = useMemo(() => {
     const raw = renderer.render(visibleItems, {
       width: layoutWidth,
       expanded: expandAll,
       overrides,
       raw: rawTools,
-      changesOnly: state.panel === 'changes',
       tick: state.motion === false ? 0 : tick,
       now,
       motion: state.motion !== false,
@@ -399,10 +391,10 @@ export function App({ store, controller, terminal, animations }: {
       animations,
     })
     // A running Laya pass follows the conversation in its live row; its result row replaces it when the pass ends.
-    if (state.transcript.layaPruning === true && state.panel !== 'changes') {
+    if (state.transcript.layaPruning === true) {
       raw.push(...layaPassRows({ phase: state.transcript.layaPhase, elapsedMs: layaElapsedMs }, { width: layoutWidth, animations }))
     }
-    if (compactStart !== undefined && state.panel !== 'changes') {
+    if (compactStart !== undefined) {
       const size = state.transcript.usage?.input
       raw.push(...compactingRows({ mark: state.motion === false ? '◌' : SPINNER[tick % SPINNER.length] ?? '◌', elapsedMs: Math.max(0, now - compactStart),
         ...size === undefined ? {} : { tokens: size } }, layoutWidth))
@@ -441,9 +433,11 @@ export function App({ store, controller, terminal, animations }: {
   const marks = useMemo(() => promptMarks(docRows, userPromptIds), [docRows, userPromptIds])
 
   // Calculate layout regions: header and indicators, the conversation, then the composer block between two rules and the status row.
-  const header = [headerRow(state, width)]
+  // A terminal with rows to spare keeps a blank row under the header, under the indicator row and above the composer.
+  const gap = height >= ROOMY_TERMINAL_ROWS ? [row('')] : []
+  const header = [headerRow(state, width), ...gap]
   const indicator = indicatorRow(state, width)
-  const indicatorLines = indicator === undefined ? [] : [indicator]
+  const indicatorLines = indicator === undefined ? [] : [indicator, ...gap]
   const userQueue = state.queue.filter(q => q.placement !== 'context')
 
   // An open search takes the composer's line: the field between the same two rules, the draft kept behind it.
@@ -462,10 +456,10 @@ export function App({ store, controller, terminal, animations }: {
   const bottomRule = [rule(width)]
   // Approvals, questions and short pickers take the composer's place; the other pickers and in-page panels also cover the conversation.
   const composerShown = state.pending.length === 0 && state.picker === undefined
-    && (state.panel === undefined || state.panel === 'transcript' || state.panel === 'changes')
+    && (state.panel === undefined || state.panel === 'transcript')
   const foot = [statusRow(state, width, tick, now, composerShown)]
   // The composer, its rules and the status row always fit; waiting notes, the palette and the Keys box share what is left.
-  const fixedHeight = header.length + indicatorLines.length + compRows.length + bottomRule.length + foot.length
+  const fixedHeight = header.length + indicatorLines.length + gap.length + compRows.length + bottomRule.length + foot.length
   const noteRows = composerNotes(state, width).slice(-Math.max(1, height - fixedHeight - 1))
   const paletteIndex = Math.min(commandIndex, Math.max(0, matchingCommands.length - 1))
   const paletteHeight = Math.min(PALETTE_MAX_ROWS, Math.floor(height / 2), height - fixedHeight - noteRows.length - 1)
@@ -480,7 +474,8 @@ export function App({ store, controller, terminal, animations }: {
   const viewportHeight = Math.max(1, bodyBudget - (hasScrollBar ? 2 : 0))
   const currentTop = topOf(docRows, viewportHeight, anchor)
   const activePromptMark = promptAbove(marks, currentTop)
-  const hasStickyHeader = activePromptMark !== undefined && viewportHeight > 1
+  // At the top of the document no prompt is above the viewport, even when one starts on its first row.
+  const hasStickyHeader = activePromptMark !== undefined && viewportHeight > 1 && currentTop > 0
   const maxTop = Math.max(0, docRows.length - viewportHeight)
   const linesAboveBottom = Math.max(0, maxTop - currentTop)
 
@@ -687,7 +682,7 @@ export function App({ store, controller, terminal, animations }: {
       }
       case 'queue-remove': {
         clearTransient()
-        void controller.runCommand(`/queue remove ${action.index + 1}`).catch(controller.report)
+        void controller.removeQueued?.(action.index).catch(controller.report)
         return
       }
     }
@@ -760,7 +755,7 @@ export function App({ store, controller, terminal, animations }: {
       ]
       return fitScreen([...listRows, ...prev], width, height)
     }
-    if (state.panel !== undefined && state.panel !== 'transcript' && state.panel !== 'changes') {
+    if (state.panel !== undefined && state.panel !== 'transcript') {
       const details = inspectorRows(state, state.panel, allCommands, width, now)
       const controls = state.panel === 'goal'
         ? goalControls(goalPhase(state), width)
@@ -805,6 +800,7 @@ export function App({ store, controller, terminal, animations }: {
       ...header,
       ...indicatorLines,
       ...bodyRows,
+      ...gap,
       ...keyRows,
       ...noteRows,
       ...compRows,
@@ -816,7 +812,7 @@ export function App({ store, controller, terminal, animations }: {
     state, width, height, approvalAllowed, approvalArguments, panelOffset, foot, qDraft, browser, pickerSearch, pickerIndex,
     allCommands, hasStickyHeader, activePromptMark, visibleItems, marks, tick, docRows, currentTop, animations, welcomeStart,
     viewportHeight, searchMode, searchQuery.text, hasScrollBar, linesAboveBottom, header, indicatorLines, selection, effectiveSelection,
-    transcriptHits, searchHitIndex, keyRows, noteRows, compRows, cmdPopupRows, bottomRule,
+    transcriptHits, searchHitIndex, keyRows, noteRows, compRows, cmdPopupRows, bottomRule, gap,
   ])
 
   const composerStartY = height - foot.length - bottomRule.length - cmdPopupRows.length - compRows.length
@@ -936,7 +932,7 @@ export function App({ store, controller, terminal, animations }: {
       if (state.mouse === false) return
       if (mouse.kind === 'wheel') {
         const step = mouse.ctrl ? Math.max(1, viewportHeight - 1) : WHEEL_ROWS
-        if (state.pending.length > 0 || (state.panel !== undefined && state.panel !== 'transcript' && state.panel !== 'changes')) {
+        if (state.pending.length > 0 || (state.panel !== undefined && state.panel !== 'transcript')) {
           scrollPanel(mouse.direction * step)
           return
         }
@@ -1251,7 +1247,7 @@ export function App({ store, controller, terminal, animations }: {
     }
 
     // In-page Inspector Panel navigation
-    if (state.panel !== undefined && state.panel !== 'transcript' && state.panel !== 'changes') {
+    if (state.panel !== undefined && state.panel !== 'transcript') {
       if (key.pageUp || key.upArrow) { scrollPanel(key.pageUp ? -panelFrame.current.page : -1); return }
       if (key.pageDown || key.downArrow) { scrollPanel(key.pageDown ? panelFrame.current.page : 1); return }
       if (key.home) { setPanelOffset(0); return }

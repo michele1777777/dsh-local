@@ -9,7 +9,7 @@ import type { Agent, InboxTarget } from '@deepseek-ai/dsh-agent'
 
 /**
  * How the composer asked for a prompt: plain Enter, or an explicit request
- * (Tab, `/queue add`) to hold it until the running turn ends, or Ctrl+Enter
+ * (Tab) to hold it until the running turn ends, or Ctrl+Enter
  * to interrupt after admission.
  */
 export type SubmitGesture = 'enter' | 'queue' | 'interrupt'

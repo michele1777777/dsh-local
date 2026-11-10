@@ -47,8 +47,8 @@ test('startup flags include all directories, model and preset; reasoning is not 
 })
 for (const args of [['-r', 'id', '-c'], ['resume', 'id', '--last'], ['--preset', 'standard', 'resume', 'id']]) test(`invalid startup: ${args.join(' ')}`, () => { assert.throws(() => parse(args)) })
 test('plugin commands win names except reserved safety controls', () => {
-  const entries = mergeCommands([{ name: 'model', description: 'plugin model' }, { name: 'compact', description: 'compact' }, { name: 'stop', description: 'plugin stop' }])
+  const entries = mergeCommands([{ name: 'model', description: 'plugin model' }, { name: 'compact', description: 'compact' }, { name: 'exit', description: 'plugin exit' }])
   assert.equal(entries.find(row => row.name === 'model').origin, 'registry')
-  assert.equal(entries.find(row => row.name === 'stop').origin, 'local')
+  assert.equal(entries.find(row => row.name === 'exit').origin, 'local')
   assert.equal(filterCommands(entries, '/COMP')[0].name, 'compact')
 })

@@ -26,7 +26,7 @@ export type UiAction =
   | { kind: 'goal-command'; command: string }
   | { kind: 'palette-tab'; tab: import('./commands.ts').PaletteTab }
   | { kind: 'toggle-keys' }
-  /** Removes the user-queued message at this position of the composer's queue rows, as `/queue remove N` does. */
+  /** Removes the user-queued message at this position of the composer's queue rows. */
   | { kind: 'queue-remove'; index: number }
 
 /**

@@ -34,6 +34,11 @@ function graphemes(text: string): Iterable<string> {
  */
 export const span = (text: string, tone: Tone = 'text', bold = false): Span => ({ text, tone, bold })
 /**
+ * The dot that marks an outcome by its colour alone (green for success, red for failure, yellow for an interruption) and,
+ * in the accent tone, the start of an answer. It is the small bullet, so a column of them stays quiet.
+ */
+export const STATUS_DOT = '•'
+/**
  * A row of spans.
  * @param spans - the spans; strings become default-tone spans.
  * @returns the row.

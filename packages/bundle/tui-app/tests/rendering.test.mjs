@@ -55,8 +55,8 @@ test('tool folding is individual and does not change the stored result', () => {
   const item = tool({ result: { card: 'terminal', output: Array.from({length:80}, (_,i) => `OUTPUT_${i}`).join('\n'), exitCode: 0 } })
   const before = JSON.stringify(item)
   const collapsed = itemRows(item, opts(80, false)), expanded = text(itemRows(item, { ...opts(80, false), overrides: { [item.id]: true } }))
-  // Collapsed, the call is one row after the blank one, naming what the model said it does; without that, the last output line.
-  assert.equal(collapsed.length, 2); assert.match(text(collapsed), /Run authentication tests/); assert.ok(!text(collapsed).includes('OUTPUT_'))
+  // Collapsed, the call is its command row and one row naming what the model said it does; without that, the last output line.
+  assert.equal(collapsed.length, 3); assert.match(text(collapsed), /Run authentication tests/); assert.ok(!text(collapsed).includes('OUTPUT_'))
   const undescribed = itemRows({ ...item, call: { card: 'terminal', title: 'pnpm test --filter auth' } }, opts(80, false))
   assert.match(text(undescribed), /OUTPUT_79/); assert.ok(!text(undescribed).includes('OUTPUT_0'))
   assert.ok(expanded.includes('OUTPUT_0')); assert.equal(JSON.stringify(item), before)
@@ -193,7 +193,7 @@ test('slash commands in the conversation use their own light-blue tone', () => {
 test('a tool heading colours only its verb, in the category tone; the target stays plain, with no filled badge', () => {
   const rows = itemRows(tool(), opts(80, true))
   const heading = rows[1]
-  assert.match(textOfRow(heading), /^ {2}▾ ✓ Run {4}pnpm test --filter auth {2}exit 0 +1\.8s$/)
+  assert.match(textOfRow(heading), /^ {2}▾ • Run {4}pnpm test --filter auth · exit 0 · 1\.8s$/u)
   assert.ok(heading.spans.every(part => part.inverse !== true && part.background === undefined))
   const verb = heading.spans.find(part => part.text.trim() === 'Run')
   assert.equal(verb?.tone, 'toolBash'); assert.equal(verb?.bold, true)
@@ -239,7 +239,7 @@ test('without a terminal height, live reasoning carries the small Thinking mark 
   assert.deepEqual(renderer.render([old,live],{...options,now:60000,tick:20}),done)
   // Opened, it is its title row with the reasoning behind a rail, and no frame.
   const open=renderer.render([old,live],{...options,now:30000,overrides:{'reasoning:new':true}})
-  assert.match(text(open.filter(r=>r.itemId==='new')), /^ {2}▾ Thought · 8s · 2 lines\n {2}┃ first\n {2}┃ second$/mu)
+  assert.match(text(open.filter(r=>r.itemId==='new')), /^ {2}▾ Thought · 8s · 2 lines\n {2}┊ first\n {2}┊ second$/mu)
   assert.doesNotMatch(text(open), /[╭╮╰╯│]/u)
   // Every cell of the heading after the margin toggles the reasoning.
   assert.ok(done.filter(r=>r.itemId==='new' && r.heading).every(r=>r.spans.slice(1).every(p=>p.action?.kind==='toggle-reasoning')))
@@ -282,8 +282,8 @@ test('an open tool card is its title row and a rail, without a frame, and shows 
     bounded(rows,width)
     assert.doesNotMatch(text(rows), /Arguments|Directory|"command"|"description"|[╭╮╰╯│]/u)
     if (!expanded) {
-      // Collapsed, the call is one clickable row, and its description takes rows of its own when it does not fit beside it.
-      assert.ok(width>=79?rows.length===2:rows.length>=2)
+      // Collapsed, the call is its clickable command row and its description on rows of its own, wrapped when narrow.
+      assert.ok(width>=79?rows.length===3:rows.length>=3)
       assert.ok(rows.slice(1).every(r=>r.spans.every(p=>p.action?.kind==='inspect-item'&&p.action.itemId===item.id)))
       continue
     }
@@ -291,7 +291,7 @@ test('an open tool card is its title row and a rail, without a frame, and shows 
     const title=rows[1]
     assert.ok(title.spans.filter(p=>p.text.trim()!=='').every(p=>p.action?.kind==='inspect-item'&&p.action.itemId===item.id))
     if(width>=12){
-      assert.ok(rows.slice(2).every(r=>textOfRow(r).startsWith('  ┃ ')))
+      assert.ok(rows.slice(2).every(r=>textOfRow(r).startsWith('  ┇ ')))
       assert.ok(rows.slice(2).every(r=>r.spans[1].tone==='toolBash'))
     }
     if(width===79){
