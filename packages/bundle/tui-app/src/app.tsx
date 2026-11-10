@@ -332,10 +332,12 @@ export function App({ store, controller, terminal, animations }: {
     }
   }, [state.editorRequest, state.busy])
 
-  // The shared tick runs while work is in progress and while the empty conversation plays the welcome whale. It follows the
-  // visible conversation, not the transcript: /clear hides settled items without removing them.
+  // The shared tick runs while work is in progress, while the empty conversation plays the welcome whale, and while a jobs
+  // or tasks panel shows the running time of a live job. It follows the visible conversation, not the transcript: /clear
+  // hides settled items without removing them.
   const working = state.status === 'running' || state.busy !== undefined || state.transcript.compacting || state.transcript.layaPruning === true || (state.reviewingApprovals ?? 0) > 0
-  const ticking = working || (welcomeShown && state.motion !== false)
+  const watchingJobs = (state.panel === 'jobs' || state.panel === 'tasks') && state.jobs.some(job => job.status === 'running' || job.status === 'stopping')
+  const ticking = working || (welcomeShown && state.motion !== false) || watchingJobs
   useEffect(() => {
     if (!ticking) return
     const timer = setInterval(() => {
@@ -709,7 +711,7 @@ export function App({ store, controller, terminal, animations }: {
       return fitScreen([...listRows, ...prev], width, height)
     }
     if (state.panel !== undefined && state.panel !== 'transcript' && state.panel !== 'changes') {
-      const details = inspectorRows(state, state.panel, allCommands, width)
+      const details = inspectorRows(state, state.panel, allCommands, width, now)
       const controls = state.panel === 'goal'
         ? goalControls(goalPhase(state), width)
         : [fitRow(row({ ...span('[ Close ] ', 'accent', true), action: { kind: 'close-details' as const } }, span('PgUp/PgDn scroll · Esc return to chat', 'footer')), width)]

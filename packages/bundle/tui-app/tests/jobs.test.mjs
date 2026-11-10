@@ -8,6 +8,7 @@ const job = { id: 'job-1', kind: 'bash', label: 'pnpm test', status: 'running', 
 test('background jobs have footer and inspector click targets, including empty finished jobs', () => {
   const state = fixture({ jobs: [job, { ...job, id: 'job-2', status: 'completed', output: { total: 0, earliest: 0 } }] })
   assert.ok(statusRow(state, 100, 0, 10).spans.some(span => span.action?.kind === 'open-jobs'))
+  assert.ok(!statusRow(fixture({ jobs: [{ ...job, status: 'completed', finishedAt: 2 }] }), 100, 0, 10).spans.some(span => span.action?.kind === 'open-jobs'))
   for (const panel of ['tasks', 'jobs']) {
     const actions = inspectorRows(state, panel, [], 100).flatMap(row => row.spans).map(span => span.action).filter(Boolean)
     assert.ok(actions.some(action => action.kind === 'inspect-job' && action.jobId === 'job-1'))
@@ -46,4 +47,29 @@ test('observer bounds output, preserves gaps, and does not overwrite a closed pa
   }
   await followJob(store, job.id, closed(), abort.signal)
   assert.equal(store.getState().jobDetail, undefined)
+})
+
+test('job rows name what the job does, colour its status, order live jobs first and show the command muted', () => {
+  const started = { kind: 'tool', id: 'call-1', name: 'bash', args: { command: 'pnpm dev --port 3000', description: 'Start the dev server', run_in_background: true },
+    call: { card: 'terminal', title: 'pnpm dev --port 3000' }, resultText: 'started background job bash-1a2b', isError: false, settled: true }
+  const dev = { id: 'bash-1a2b', kind: 'bash', label: 'pnpm dev --port 3000', status: 'running', progress: 'listening on :3000', startedAt: 1_000, output: { total: 5, earliest: 0 } }
+  const old = { id: 'bash-3c4d', kind: 'bash', label: 'pnpm test', status: 'failed', detail: 'exit code: 1', startedAt: 0, finishedAt: 4_000, output: { total: 5, earliest: 0 } }
+  const late = { id: 'bash-5e6f', kind: 'bash', label: 'pnpm build', status: 'completed', startedAt: 0, finishedAt: 9_000, output: { total: 5, earliest: 0 } }
+  const state = fixture({ jobs: [old, late, dev], transcript: { ...fixture().transcript, items: [started] } })
+  const rows = inspectorRows(state, 'jobs', [], 60, 13_000).slice(2)
+  assert.deepEqual(rows.map(textOfRow), [
+    `◌ Start the dev server${' '.repeat(35)}12s`,
+    '  pnpm dev --port 3000 · listening on :3000',
+    `✓ pnpm build${' '.repeat(44)}9.0s`,
+    '  completed',
+    `× pnpm test${' '.repeat(45)}4.0s`,
+    '  exit code: 1',
+  ])
+  assert.equal(rows[0].spans[0].tone, 'accent')
+  assert.equal(rows[2].spans[0].tone, 'success')
+  assert.equal(rows[4].spans[0].tone, 'error')
+  assert.ok(rows[1].spans.every(part => part.tone === 'muted'))
+  assert.ok(rows.every(value => value.spans.every(part => part.action?.kind === 'inspect-job')))
+  const detail = inspectorRows({ ...state, selectedJob: dev.id }, 'jobs', [], 60, 13_000).map(textOfRow).join('\n')
+  assert.match(detail, /Description {2}Start the dev server/)
 })
