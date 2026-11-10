@@ -228,9 +228,20 @@ test('the Thinking scene sits under the live label, names its figure, and gives 
   const rows = itemRows(live(), options())
   const label = '  › Thinking… · 12s · 1 line'
   assert.equal(textOfRow(rows[1]), label)
-  // The scene starts under the label text, two cells in, and fills the twelve rows after it.
+  // The figure is centred in the twelve rows under the label, and grey stars fill the rest of the width.
   const found = shown(screen(rows), THINKING_SCENE)
-  assert.deepEqual([found?.y, found?.x, rows.length], [2, 4, 14])
+  assert.deepEqual([found?.y, found?.x, rows.length], [2, 2 + Math.floor((98 - 48) / 2), 14])
+  assert.ok(rows.slice(2).every(line => widthOf(textOfRow(line)) === 100))
+  const sides = rows.slice(2).map(line => textOfRow(line).slice(2, found.x) + textOfRow(line).slice(found.x + 48)).join('')
+  assert.ok(sides.replace(/[ ⠀]/gu, '').length >= 10, sides)
+  // Only the figure is coloured; the side stars are grey.
+  for (const line of rows.slice(2)) {
+    let x = 0
+    for (const part of line.spans) {
+      if (part.tone !== 'muted' && part.text.trim() !== '') assert.ok(x >= found.x && x + part.text.length <= found.x + 48, `${part.tone} at ${x}`)
+      x += part.text.length
+    }
+  }
   assert.doesNotMatch(screen(rows).join('\n'), /[╭╮╰╯│─⎻⎼]|Show details/u)
   // Every cell of the label and the scene opens the reasoning.
   assert.ok(rows.slice(1).every(line => line.spans.slice(1).every(part => part.action?.kind === 'toggle-reasoning')))
@@ -239,17 +250,22 @@ test('the Thinking scene sits under the live label, names its figure, and gives 
   const held = shown(screen(still), THINKING_SCENE)
   assert.ok(same(THINKING_SCENE, held.index, figureStill(held.index)))
   const name = animations.caption(THINKING_SCENE, figureStill(held.index) * 100)
-  assert.ok(name !== '' && textOfRow(still[13]).endsWith(`  ${name}`), textOfRow(still[13]))
+  // The name sits on the label's row, centred on the scene.
+  assert.ok(name !== '')
+  assert.equal(textOfRow(still[1]).indexOf(name), 2 + Math.floor((98 - name.length) / 2), textOfRow(still[1]))
+  assert.ok(textOfRow(still[1]).startsWith(label))
   // Different thoughts open on different constellations.
   const names = new Set('abcdefghijklmnop'.split('').map(id => {
     const value = itemRows({ ...live(), id }, options({ motion: false }))
     return animations.caption(THINKING_SCENE, figureStill(shown(screen(value), THINKING_SCENE).index) * 100)
   }))
   assert.ok(names.size >= 6, [...names].join(', '))
-  // Without room for the name beside it, the name takes a row of its own under the scene.
+  // When the centre is taken by the label, the name follows it two cells later.
   const slim = itemRows(live(), options({ width: 60, motion: false }))
-  assert.equal(slim.length, 15)
-  assert.match(textOfRow(slim[14]), /^ {4}\S/u)
+  assert.equal(slim.length, 14)
+  assert.match(textOfRow(slim[1]), new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')} {2}\\S`, 'u'))
+  // Narrower than the scene: no scene.
+  assert.equal(shown(screen(itemRows(live(), options({ width: 49 }))), THINKING_SCENE), undefined)
   // Opened, the reasoning replaces the scene; hidden again, the scene returns.
   const open = itemRows(live(), options({ overrides: { 'reasoning:live': true } }))
   assert.deepEqual(screen(open).slice(1), ['  ▾ Thinking… · 12s · 1 line', '    Looking at the code.'])
@@ -265,7 +281,7 @@ test('the Thinking scene sits under the live label, names its figure, and gives 
   // The Waiting for model label carries the same scene.
   const waiting = itemRows({ kind: 'assistant', id: 'wait', reasoning: '', text: '', settled: false }, options())
   assert.equal(textOfRow(waiting[1]), '  Waiting for model…')
-  assert.deepEqual([shown(screen(waiting), THINKING_SCENE)?.y, shown(screen(waiting), THINKING_SCENE)?.x], [2, 4])
+  assert.deepEqual([shown(screen(waiting), THINKING_SCENE)?.y, shown(screen(waiting), THINKING_SCENE)?.x], [2, 27])
 })
 
 test('the Thinking scene moves with time, holds a named figure with motion off, and leaves with the settled thought', async () => {
