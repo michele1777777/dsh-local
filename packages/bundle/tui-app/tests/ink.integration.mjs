@@ -82,40 +82,29 @@ test('Ink decodes Ctrl+Enter separately from Enter in the extended keyboard prot
   assert.equal(parseKeypress('\r').ctrl, false)
 })
 
-const { WhaleAnimations, WHALE_ASSETS } = await import('../src/whale.ts')
-const whales = new WhaleAnimations(WHALE_ASSETS, error => { throw error })
-for (const columns of [60, 80, 120, 232]) test(`real Ink paints the Thinking scene and a welcome scene inside ${columns} columns`, () => {
+const { ANIMATION_ASSETS, SceneAnimations, WELCOME_SCENE, WELCOME_STILL_FRAME } = await import('../src/animation.ts')
+const { layaPassRows } = await import('../src/document.ts')
+const { welcomeRows } = await import('../src/screen.ts')
+const { palette } = await import('../src/theme.ts')
+const animations = new SceneAnimations(ANIMATION_ASSETS, error => { throw error })
+const BRAILLE = /[⠁-⣿]/u
+for (const columns of [60, 80, 120, 232]) for (const theme of ['dark', 'light', 'mono']) test(`real Ink paints the welcome whale, the Thinking mark and the pruning mark inside ${columns} columns in the ${theme} theme`, () => {
   const width = columns - 1
   const item = { kind: 'assistant', id: 'live', reasoning: 'Looking at the code.', text: '', settled: false, reasoningStartedAt: 0 }
-  const space = { columns: width - 3, rows: 21 }
-  const thinking = itemRows(item, { width, expanded: false, overrides: {}, tick: 37, now: 4000, scene: { whales, space } })
-  const welcome = whales.scene(space, width, 3700)
-  for (const rows of [thinking, welcome]) {
-    const painted = safeText(renderToString(createElement(Screen, { rows, width, theme: 'dark' }), { columns }))
-    assert.match(painted, /[▀-▟]/u)
-    assert.equal(painted.split('\n').length, rows.length)
-    assert.ok(painted.split('\n').every(line => widthOf(line) <= width))
-  }
-})
-
-const { LayaAnimations, LAYA_ASSETS, layaMark } = await import('../src/laya.ts')
-const { layaPassRows } = await import('../src/document.ts')
-const { palette } = await import('../src/theme.ts')
-const laya = new LayaAnimations(LAYA_ASSETS, error => { throw error })
-for (const columns of [60, 80, 120]) for (const theme of ['dark', 'light', 'mono']) test(`real Ink paints the Laya box and mark inside ${columns} columns in the ${theme} theme`, () => {
-  const width = columns - 1
-  for (const phase of ['prune', 'restore']) {
-    const rows = [...layaPassRows({ phase, elapsedMs: 1300 }, { width, tick: 13, scene: { laya, space: { columns: width - 3, rows: 11 } } }),
-      row(...layaMark(true, 1300))]
+  const thinking = itemRows(item, { width, expanded: false, overrides: {}, tick: 37, now: 4000, animations })
+  const welcome = welcomeRows(animations.still(WELCOME_SCENE, WELCOME_STILL_FRAME), width, 30)
+  const pruning = [...layaPassRows({ phase: 'prune', elapsedMs: 1300 }, { width, animations }), ...layaPassRows({ phase: 'restore', elapsedMs: 0 }, { width, animations })]
+  for (const rows of [thinking, welcome, pruning]) {
     const painted = safeText(renderToString(createElement(Screen, { rows, width, theme }), { columns }))
-    assert.match(painted, /[▀-▟]/u)
+    // The 60-column whale needs four more cells than a 60-column terminal offers; there the welcome text stands alone.
+    if (rows !== welcome || columns > 64) assert.match(painted, BRAILLE)
     assert.equal(painted.split('\n').length, rows.length)
     assert.ok(painted.split('\n').every(line => widthOf(line) <= width))
-    // Every mantis cell carries a theme tone: coloured in dark and light, the terminal default in mono.
+    // Every animation cell carries a theme tone: coloured in dark and light, the terminal default in mono.
     const colours = palette(theme)
     for (const part of rows.flatMap(line => line.spans)) {
       assert.ok(Object.hasOwn(colours, part.tone ?? 'text'), part.tone)
-      if (/[⠁-⣿▀-▟]/u.test(part.text) && part.tone !== 'text') assert.equal(colours[part.tone] === undefined, theme === 'mono', `${theme} ${part.tone}`)
+      if (BRAILLE.test(part.text) && part.tone !== 'text') assert.equal(colours[part.tone] === undefined, theme === 'mono', `${theme} ${part.tone}`)
     }
   }
 })

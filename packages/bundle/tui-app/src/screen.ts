@@ -7,7 +7,6 @@ import { activeLine, cellWidth, wrapEditor, type VisualLine } from './layout.ts'
 import type { PendingApproval, PendingQuestion } from './interaction.ts'
 import type { ChatState, Picker, PickerRow } from './store.ts'
 import { activity, contextReading, duration, goalPhase, nonnegative, record, sessionIndicators, speedReading, workElapsed } from './metrics.ts'
-import { layaCutting, layaMark } from './laya.ts'
 import { permissionAuditLabel } from './permission-audit.ts'
 import { codeBlocks } from './code-blocks.ts'
 import { COPY_LABEL, markdownRows } from './markdown-layout.ts'
@@ -55,93 +54,41 @@ export interface QuestionDraft { index: number; optionIndex: number; selected: s
 export const questionDraft = (): QuestionDraft => ({ index: 0, optionIndex: 0, selected: [], custom: { text: '', cursor: 0 }, customMode: false })
 /** Braille spinner frames, one cell each. */
 export const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const
-const BRAILLE_BITS = [[0x01, 0x08], [0x02, 0x10], [0x04, 0x20], [0x40, 0x80]] as const
-const BRAILLE_TONES = ['text', 'command', 'brand', 'muted'] as const
-type BrailleTone = typeof BRAILLE_TONES[number]
-
-// The thinking whale, drawn by hand at braille-dot resolution: 28 × 16 dots in fourteen cells by four
-// rows. A braille cell shows one colour, so every part sits on whole cell rows: spout and flukes on the top
-// row, the back on the second, the white belly under the head and the blue rear on the third, the sea alone
-// on the last. The eye is the only gap. `b` blue body, `w` white belly.
-const MINI_BODY = [
-  '..bbbbbbbbbbbb..........bb..',
-  '.bbbbbbbbbbbbbbbbb.....bb...',
-  'bbbb.bbbbbbbbbbbbbbbbbbb....',
-  'bbbbbbbbbbbbbbbbbbbbbbb.....',
-  'wwwwwwwwwwwwwwwwwwbbbbb.....',
-  'wwwwwwwwwwwwwwwwwwbbb.......',
-  '.wwwwwwwwwwwwwwwwwb.........',
-  '...wwwwwwwwwwwwww...........',
-] as const
-// The flukes above the tail stalk, in two strokes (top cell row).
-const MINI_FLUKES = [
-  ['......b....b', '......bb..bb', '.......bbbb.', '........bb..'],
-  ['............', '......b....b', '......bb..bb', '.......bbbb.'],
-] as const
-const MINI_TONES = { b: 'brand', w: 'text' } as const
-const MINI_SPOUT_TICKS = 50, MINI_TAIL_TICKS = 8
+/** The welcome text under the whale on an empty conversation. */
+const WELCOME_TEXT: readonly Row[] = [
+  row(span('What are we building?', 'accent', true)),
+  row(''),
+  row(span('/resume  continue a session    /model  choose a model', 'muted')),
+  row(span('/plan and /goal are provided by your session preset.', 'muted')),
+  row(''),
+  row(span('Your conversation stays in the shared session log.', 'muted')),
+]
+/** Cells kept clear on each side of the welcome whale and the welcome text. */
+const WELCOME_SIDE = 2
 
 /**
- * The small whale beside the Waiting for model label: its flukes beat, a spout rises from the blowhole now and
- * then, and the sea runs beneath it. Frame 0 is the still pose.
- * @param tick - shared 100 ms animation tick.
- * @returns four rows of fourteen terminal cells with a fixed layout footprint.
+ * The empty conversation: the welcome whale above a blank row and the welcome text, the whole group centred vertically and
+ * each part centred horizontally, the text as one left-aligned block. The whale appears only when its columns plus
+ * {@link WELCOME_SIDE} cells on each side and the whole group fit; otherwise the text is centred alone. Text too wide for the
+ * area wraps behind a two-cell margin.
+ * @param whale - the whale frame to show, or undefined when none is available.
+ * @param width - cells across the conversation area.
+ * @param height - rows of the conversation area.
+ * @returns exactly `height` rows.
  */
-export function thinkingWhale(tick = 0): Row[] {
-  const width = MINI_BODY[0].length
-  const pixels: (BrailleTone | undefined)[][] = Array.from({ length: 16 }, () => Array<BrailleTone | undefined>(width))
-  const put = (x: number, y: number, tone: BrailleTone): void => {
-    const line = pixels[y]
-    if (line !== undefined && x >= 0 && x < width) line[x] = tone
+export function welcomeRows(whale: readonly Row[] | undefined, width: number, height: number): Row[] {
+  const textWidth = Math.max(...WELCOME_TEXT.map(value => widthOf(textOfRow(value))))
+  const pad = (rows: readonly Row[], cells: number): Row[] => rows.map(value => row(span(' '.repeat(Math.max(0, Math.floor((width - cells) / 2)))), ...value.spans))
+  let group: Row[]
+  if (textWidth + 2 * WELCOME_SIDE > width) group = indentRows(WELCOME_TEXT.flatMap(value => wrapProse(value, Math.max(1, width - 2))), '  ', width)
+  else {
+    const columns = whale?.[0] === undefined ? 0 : widthOf(textOfRow(whale[0]))
+    const fits = whale !== undefined && columns + 2 * WELCOME_SIDE <= width && whale.length + 1 + WELCOME_TEXT.length <= height
+    group = [...fits ? [...pad(whale, columns), row('')] : [], ...pad(WELCOME_TEXT, textWidth)]
   }
-  const sprite = (lines: readonly string[], left: number, top: number): void => {
-    lines.forEach((line, y) => { Array.from(line).forEach((c, x) => {
-      if (c === 'b' || c === 'w') put(left + x, top + y, MINI_TONES[c])
-    }) })
-  }
-  sprite(MINI_BODY, 0, 4)
-  const stroke = tick === 0 ? 0 : Math.floor(tick / MINI_TAIL_TICKS) % 2
-  sprite(MINI_FLUKES[stroke] ?? MINI_FLUKES[0], 16, 0)
-  // A spout from the blowhole: the jet climbs, then opens into two drops.
-  const age = tick % MINI_SPOUT_TICKS
-  if (tick > 0 && age < 16) {
-    const height = Math.min(3, 1 + Math.floor(age / 2))
-    if (age < 10) for (let y = 0; y < height; y += 1) put(6, 3 - y, 'command')
-    if (age >= 6) {
-      const spread = Math.min(2, 1 + Math.floor((age - 6) / 4))
-      put(6 - spread, age < 12 ? 0 : 1, 'command')
-      put(6 + spread, age < 12 ? 0 : 1, 'command')
-    }
-  }
-  // The sea, on its own row beneath the whale.
-  for (let x = 0; x < width; x += 1) {
-    put(x, 13 + Math.round((Math.sin((x - tick * 0.6) / 2.2) + 1) * 1), 'muted')
-  }
-  return brailleRows(pixels)
-}
-
-function brailleRows(pixels: readonly (readonly (BrailleTone | undefined)[])[]): Row[] {
-  const rows: Row[] = []
-  for (let top = 0; top < pixels.length; top += 4) {
-    const spans: Span[] = []
-    for (let left = 0; left < (pixels[top]?.length ?? 0); left += 2) {
-      let bits = 0, tone: BrailleTone | undefined
-      for (const [dy, line] of BRAILLE_BITS.entries()) {
-        for (const [dx, bit] of line.entries()) {
-          const value = pixels[top + dy]?.[left + dx]
-          if (value === undefined) continue
-          bits |= bit
-          if (tone === undefined || BRAILLE_TONES.indexOf(value) < BRAILLE_TONES.indexOf(tone)) tone = value
-        }
-      }
-      const text = bits === 0 ? ' ' : String.fromCodePoint(0x2800 + bits)
-      const part = tone === undefined ? span(text) : span(text, tone)
-      const last = spans.at(-1)
-      if (last !== undefined && last.tone === part.tone) last.text += text
-      else spans.push(part)
-    }
-    rows.push({ spans })
-  }
+  const top = Math.max(0, Math.floor((height - group.length) / 2))
+  const rows = [...Array.from({ length: top }, () => row('')), ...group].slice(0, height)
+  while (rows.length < height) rows.push(row(''))
   return rows
 }
 
@@ -193,7 +140,8 @@ export function indicatorRow(state: ChatState, width: number): Row | undefined {
 interface StatusEntry { spans: Span[]; keep: number; side: 'left' | 'right'; join?: Span }
 
 /**
- * The status line under the composer. Left: the activity with its status glyph, the model and effort, the permission preset
+ * The status line under the composer. Left: the activity with its status glyph (a running Laya pass shows only its phase
+ * label, in the accent tone), the model and effort, the permission preset
  * when it is not the default, background jobs, and the work timer while a turn runs, all muted. Right: the context meter bar,
  * usage percentage and token counts, and the `? keys` control. On narrow terminals the separators tighten, then entries leave
  * in this order: the keys control, the model, jobs, the timer, the meter bar, the token counts, the percentage and the preset.
@@ -202,17 +150,15 @@ interface StatusEntry { spans: Span[]; keep: number; side: 'left' | 'right'; joi
  * @param tick - spinner frame counter.
  * @param now - current time in milliseconds, for the work timer.
  * @param keys - offer the `? keys` control; panels and pickers carry their own keys instead.
- * @param layaElapsedMs - local cutting time of a running Laya pass, which moves the mantis mark before its label; motion off
- *   holds the mark still.
  * @returns the status row.
  */
-export function statusRow(state: ChatState, width: number, tick: number, now: number, keys = true, layaElapsedMs = 0): Row {
+export function statusRow(state: ChatState, width: number, tick: number, now: number, keys = true): Row {
   const working = state.status === 'running' || state.busy !== undefined || state.transcript.compacting || state.transcript.layaPruning === true || (state.reviewingApprovals ?? 0) > 0
   const attention = state.pending.length > 0
   const tone = attention ? 'warning' : working ? 'accent' : 'footer'
   const label = activity(state)
   const entries: StatusEntry[] = [{ side: 'left', keep: Infinity, spans: state.transcript.layaPruning === true
-    ? [...layaMark(layaCutting(state.transcript.layaPhase), state.motion === false ? 0 : layaElapsedMs), span(` ${label}`, 'accent', true)]
+    ? [span(label, 'accent', true)]
     : [span(`${working ? SPINNER[tick % SPINNER.length] : attention ? '!' : '●'} `, tone, true), span(label, 'text', attention)] }]
   const effort = state.selection.reasoningEffort
   entries.push({ side: 'left', keep: 20, spans: [span(`${state.selection.provider}/${state.selection.model}${effort === undefined ? '' : ` ${effort}`}`, 'muted')] })

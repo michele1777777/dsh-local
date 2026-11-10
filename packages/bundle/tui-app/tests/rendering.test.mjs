@@ -203,36 +203,35 @@ test('user-invocable skills join the slash palette, and a command of the same na
   assert.equal(merged.find(entry => entry.name === 'plan')?.origin, 'registry')
 })
 
-const { thinkingWhale } = await import('../src/screen.ts')
-const { layaMark } = await import('../src/laya.ts')
-const { WhaleAnimations, WHALE_ASSETS } = await import('../src/whale.ts')
-const whales = new WhaleAnimations(WHALE_ASSETS, error => { throw error })
+const { ANIMATION_ASSETS, SceneAnimations, THINKING_SCENE, ANIMATION_TICK_MS } = await import('../src/animation.ts')
+const animations = new SceneAnimations(ANIMATION_ASSETS, error => { throw error })
 const { titleSpinner, terminalTitle } = await import('../src/terminal-signals.ts')
-test('live reasoning keeps its whale inside the frame and settled reasoning keeps its duration', () => {
+test('live reasoning carries the Thinking mark beside its label and settled reasoning keeps its duration', () => {
   const renderer = createDocumentRenderer()
   const old = {kind:'assistant', id:'old', reasoning:'earlier', text:'', settled:true, reasoningStartedAt:1000, reasoningEndedAt:4500}
   const live = {kind:'assistant', id:'new', reasoning:'first\nsecond', text:'', settled:false, reasoningStartedAt:10000}
-  const options = {...opts(100), tick:8, now:17000, scene:{whales, space:{columns:96, rows:12}}}
+  const options = {...opts(100), tick:8, now:17000, animations}
   renderer.render([old],options)
   const rows = renderer.render([old,live],options)
   // A settled thought folds to one row, in the tool-row columns, with its duration on the right.
-  assert.deepEqual(rows.filter(r=>r.itemId==='old').map(textOfRow), ['', `  ◦ Thought · 1 line${' '.repeat(58)}3.5s`])
+  assert.deepEqual(rows.filter(r=>r.itemId==='old').map(textOfRow), ['', `  ◦ Thought  1 line${' '.repeat(77)}3.5s`])
   assert.doesNotMatch(text(rows.filter(r=>r.itemId==='old')), /[\u2801-\u28ff]/u)
   const label=rows.find(r=>textOfRow(r).includes('Thinking…'))
-  assert.match(textOfRow(label), /^ {2}.. › Thinking… · 7s · 2 lines/u)
-  // A live box is open water: waving top and bottom edges that run across the corners, and no sides.
-  assert.match(text(rows.filter(r=>r.itemId==='new')), /[⎻⎼]/u)
-  assert.doesNotMatch(text(rows.filter(r=>r.itemId==='new')), /[╭╮╰╯│]/u)
-  assert.equal(rows.filter(r=>r.itemId==='new' && !r.heading && !textOfRow(r).includes('Show details') && textOfRow(r).trim()!=='').length>0,true)
-  assert.ok(rows.filter(r=>r.itemId==='new').some(r=>r.spans.some(p=>p.tone==='brand' && /[\u2580-\u259f\u2801-\u28ff]/u.test(p.text))))
+  assert.match(textOfRow(label), /^ {2}› Thinking… · 7s · 2 lines {2}[ \u2800-\u28ff]{12}$/u)
+  // Live reasoning has no frame: only the label row and the mark's rows above and below it.
+  const own = rows.filter(r=>r.itemId==='new')
+  assert.equal(own.length, 4)
+  assert.doesNotMatch(text(own), /[╭╮╰╯│─⎻⎼]|Show details/u)
+  assert.ok(own.slice(1).some(r=>r.spans.some(p=>p.tone==='reasoning' && /[\u2801-\u28ff]/u.test(p.text))))
+  assert.deepEqual(own.slice(1).map(r=>textOfRow(r).slice(30)), animations.frame(THINKING_SCENE, 8 * ANIMATION_TICK_MS).map(textOfRow))
   assert.match(text(renderer.render([old,live],{...options,now:18000})), /Thinking… · 8s/)
   live.reasoningEndedAt=18500;live.settled=true
   const done=renderer.render([old,live],{...options,now:30000})
-  // Settled, the live box becomes one row joined to the thought before it, without the waves or the sea.
-  assert.deepEqual(done.filter(r=>r.itemId==='new').map(textOfRow), [`  ◦ Thought · 2 lines${' '.repeat(57)}8.5s`])
-  assert.doesNotMatch(text(done), /[⎺⎻⎼⎽⎸⎹╭╮╰╯\u2580-\u259f\u2801-\u28ff]/u)
+  // Settled, live reasoning becomes one row joined to the thought before it, without the mark.
+  assert.deepEqual(done.filter(r=>r.itemId==='new').map(textOfRow), [`  ◦ Thought  2 lines${' '.repeat(76)}8.5s`])
+  assert.doesNotMatch(text(done), /[╭╮╰╯\u2801-\u28ff]/u)
   assert.deepEqual(renderer.render([old,live],{...options,now:60000,tick:20}),done)
-  // Opened, it is the straight, closed card with the reasoning inside.
+  // Opened, it is the closed card with the reasoning inside.
   const open=renderer.render([old,live],{...options,now:30000,overrides:{'reasoning:new':true}})
   assert.match(text(open.filter(r=>r.itemId==='new')), /╭─ ▾ Thought · 8s · 2 lines ─+╮[\s\S]*first[\s\S]*second/u)
   // Every cell of the heading after the margin toggles the reasoning.
@@ -250,26 +249,19 @@ test('the terminal title carries a turning dot spinner only while a turn runs', 
 test('reasoning decorations wrap without losing controls and keep a fixed frame size', () => {
   const item={kind:'assistant',id:'live',reasoning:'reason',text:'',settled:false,reasoningStartedAt:0}
   for(const width of [1,28,40,80,120]) {
-    const frames=[0,6,12,24].map(tick=>itemRows(item,{...opts(width),tick,now:9000}))
+    const frames=[0,6,12,24].map(tick=>itemRows(item,{...opts(width),tick,now:9000,animations}))
     frames.forEach(rows=>bounded(rows,width))
     assert.ok(frames.every(rows=>rows.length===frames[0].length))
-    if(width>=28) assert.match(text(frames[0]).replace(/\n/g,''),/Show details/)
+    // The label is the control: each of its cells toggles the reasoning.
+    if(width>=28) assert.ok(frames[0].some(r=>textOfRow(r).includes('Thinking…') && r.spans.slice(1).every(p=>p.action?.kind==='toggle-reasoning')))
   }
-  assert.equal(thinkingWhale(0).length,4)
-  assert.ok([0,5,9,30].every(tick=>thinkingWhale(tick).every(r=>widthOf(textOfRow(r))===14)))
-  assert.notEqual(text(thinkingWhale(0)),text(thinkingWhale(8)))
-  // A braille cell has one colour: the whale carries a white belly, and the sea row stays grey.
-  assert.ok(thinkingWhale(0).some(r=>r.spans.some(p=>p.tone==='text' && /[\u2801-\u28ff]/u.test(p.text))))
-  assert.ok([0,5,9,30].every(tick=>thinkingWhale(tick)[3].spans.every(p=>p.tone==='muted' || !/[\u2801-\u28ff]/u.test(p.text))))
-  assert.equal(widthOf(textOfRow(row(...layaMark(true,0)))),12)
-  assert.notDeepEqual(layaMark(true,0),layaMark(true,200))
 })
-test('the status row freezes Laya motion and shows the work timer only while a turn runs', () => {
+test('the status row shows a running Laya pass as its phase label alone and the work timer only while a turn runs', () => {
   const state=fixture({motion:false,status:'running'})
   state.transcript.layaPruning=true;state.transcript.workStartedAt=1000
   const first=statusRow(state,140,0,62000),next=statusRow(state,140,8,62000)
   assert.deepEqual(first,next)
-  assert.match(textOfRow(first),/pruning context  ·  deepseek\/reasoner high  ·  1m 1s /)
+  assert.match(textOfRow(first),/^laya_context_pruner · pruning context  ·  deepseek\/reasoner high  ·  1m 1s /)
   // Decode speed and TTFT stay in /context.
   assert.doesNotMatch(textOfRow(first),/decode|TTFT|tok\/s/)
   state.status='idle';state.transcript.workCompletedAt=63000

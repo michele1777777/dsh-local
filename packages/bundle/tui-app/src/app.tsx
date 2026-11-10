@@ -25,7 +25,7 @@ import { LEGACY_BYTES, MOUSE_OFF, MOUSE_ON, parseMouse, WHEEL_ROWS } from './mou
 import { hitTest } from './panes.ts'
 import { addBlock, blockWithText, expandPastes, placeholder, placeholderAt, referenced, shouldCollapse, type PastedBlock } from './paste.ts'
 import type { SubmitGesture } from './queue.ts'
-import { fitRow, indentRows, relabel, row, rule, span, type Row } from './rich-text.ts'
+import { fitRow, relabel, row, rule, span, type Row } from './rich-text.ts'
 import {
   approvalControls,
   approvalDetails,
@@ -51,6 +51,7 @@ import {
   questionDraft,
   scrollToBottomBar,
   statusRow,
+  welcomeRows,
   type QuestionDraft,
 } from './screen.ts'
 import { isEmptySelection, paintSelection, selectedText, type Selection } from './selection.ts'
@@ -59,20 +60,9 @@ import type { ChatState, Panel, PickerRow, Store } from './store.ts'
 import type { TerminalSize } from './terminal-guard.ts'
 import { attention, FOCUS_OFF, FOCUS_ON, notification, terminalTitle, TITLE_POP, TITLE_PUSH, type SignalSnapshot } from './terminal-signals.ts'
 import { anchorAt, promptAbove, promptAnchor, promptBelow, promptMarks, reveal, scrollBy, topOf, type Anchor } from './viewport.ts'
-import { ANIMATION_TICK_MS, SCENE_FRAME_COLUMNS } from './animation.ts'
-import { layaCutting, type LayaAnimations } from './laya.ts'
-import type { WhaleAnimations } from './whale.ts'
+import { ANIMATION_TICK_MS, WELCOME_SCENE, WELCOME_STILL_FRAME, type SceneAnimations } from './animation.ts'
+import { layaCutting } from './metrics.ts'
 
-/**
- * Rows a Thinking box or live Laya box scene leaves to the rest of the screen: the box's two edges, and ten for the header,
- * the rest of the conversation, the composer and the status line.
- */
-const THINKING_SCENE_RESERVE = 12
-/**
- * Columns a whale or mantis scene may take in a frame `width` cells wide: the frame is one column narrower than the terminal, and
- * each variant needs a terminal {@link SCENE_FRAME_COLUMNS} wider than its scene.
- */
-const sceneColumns = (width: number): number => width + 1 - SCENE_FRAME_COLUMNS
 /**
  * One resize gesture delivers many widths, and laying out a long transcript costs far more than a frame:
  * until the width settles, the conversation keeps its last layout, clipped or padded to the live frame.
@@ -114,14 +104,12 @@ export interface Controller {
   previewSession?(id: string, signal: AbortSignal): Promise<SessionPreview>
 }
 
-export function App({ store, controller, terminal, whales, laya }: {
+export function App({ store, controller, terminal, animations }: {
   store: Store
   controller: Controller
   terminal?: TerminalSize
-  /** The whale scenes this screen shows, owned by the caller for the screen's lifetime. */
-  whales: WhaleAnimations
-  /** The mantis scenes shown while Laya prunes, owned by the caller for the screen's lifetime. */
-  laya: LayaAnimations
+  /** The welcome, Thinking and pruning animations this screen shows, owned by the caller for the screen's lifetime. */
+  animations: SceneAnimations
 }) {
   const state = useSyncExternalStore(store.subscribe, store.getState)
   useEffect(() => {
@@ -206,7 +194,13 @@ export function App({ store, controller, terminal, whales, laya }: {
 
   const [tick, setTick] = useState(0)
   const [now, setNow] = useState(() => Date.now())
-  // Laya cutting time is local to the pass: ticks since its current cutting phase began, restarted after a managed phase.
+  // The welcome whale plays from its first frame each time the empty conversation appears: at start, after /clear and on a
+  // switch to an empty session.
+  const welcomeShown = state.transcript.items.length <= state.hiddenBefore
+  const welcomeKey = welcomeShown ? `${state.sessionId}:${state.viewEpoch}` : undefined
+  const [welcomeStart, setWelcomeStart] = useState<{ key: string; tick: number } | undefined>(undefined)
+  if (welcomeKey !== welcomeStart?.key) setWelcomeStart(welcomeKey === undefined ? undefined : { key: welcomeKey, tick })
+  // Laya pruning time is local to the pass: ticks since its current pruning phase began, restarted after a managed phase.
   const layaCut = state.transcript.layaPruning === true && layaCutting(state.transcript.layaPhase) ? state.transcript.layaPruneId ?? '' : undefined
   const [layaCutStart, setLayaCutStart] = useState<{ key: string; tick: number } | undefined>(undefined)
   if (layaCut !== layaCutStart?.key) setLayaCutStart(layaCut === undefined ? undefined : { key: layaCut, tick })
@@ -338,16 +332,18 @@ export function App({ store, controller, terminal, whales, laya }: {
     }
   }, [state.editorRequest, state.busy])
 
-  // Animation ticker while working or showing animated empty state
+  // The shared tick runs while work is in progress and while the empty conversation plays the welcome whale. It follows the
+  // visible conversation, not the transcript: /clear hides settled items without removing them.
   const working = state.status === 'running' || state.busy !== undefined || state.transcript.compacting || state.transcript.layaPruning === true || (state.reviewingApprovals ?? 0) > 0
+  const ticking = working || (welcomeShown && state.motion !== false)
   useEffect(() => {
-    if (!working && state.transcript.items.length > 0) return
+    if (!ticking) return
     const timer = setInterval(() => {
       setTick(t => t + 1)
       setNow(Date.now())
     }, ANIMATION_TICK_MS)
     return () => { clearInterval(timer) }
-  }, [working, state.transcript.items.length])
+  }, [ticking])
 
   const updateDraft = (next: EditorState): void => {
     setUndoState(u => remember(u, editor, next))
@@ -381,14 +377,11 @@ export function App({ store, controller, terminal, whales, laya }: {
       changesOnly: state.panel === 'changes',
       tick: state.motion === false ? 0 : tick,
       now,
-      scene: { whales, space: { columns: sceneColumns(layoutWidth), rows: height - THINKING_SCENE_RESERVE } },
+      animations,
     })
-    // A running Laya pass follows the conversation in its live box; its result row replaces it when the pass ends.
+    // A running Laya pass follows the conversation in its live row; its result row replaces it when the pass ends.
     if (state.transcript.layaPruning === true && state.panel !== 'changes') {
-      raw.push(...layaPassRows({ phase: state.transcript.layaPhase, elapsedMs: layaElapsedMs }, {
-        width: layoutWidth, tick: state.motion === false ? 0 : tick,
-        scene: { laya, space: { columns: sceneColumns(layoutWidth), rows: height - THINKING_SCENE_RESERVE } },
-      }))
+      raw.push(...layaPassRows({ phase: state.transcript.layaPhase, elapsedMs: layaElapsedMs }, { width: layoutWidth, animations }))
     }
     return linkRows(raw, state.cwd, state.links !== false).map((r) => {
       const at = copiedKey === undefined ? -1
@@ -400,8 +393,8 @@ export function App({ store, controller, terminal, whales, laya }: {
       return relabel(r, at, label, { tone: 'success', bold: true })
     })
   }, [renderer, visibleItems, layoutWidth, expandAll, state.panel, overrides, rawTools, tick,
-    state.motion, state.cwd, state.links, copiedKey, now, whales, height, state.transcript.layaPruning, state.transcript.layaPhase,
-    layaElapsedMs, laya])
+    state.motion, state.cwd, state.links, copiedKey, now, animations, state.transcript.layaPruning, state.transcript.layaPhase,
+    layaElapsedMs])
 
   // Keep the selected document stable while new output arrives or tools collapse.
   const docRows = selection?.document ?? liveDocRows
@@ -452,7 +445,7 @@ export function App({ store, controller, terminal, whales, laya }: {
   // Approvals, questions, pickers and in-page panels paint over the conversation and the composer.
   const composerShown = state.pending.length === 0 && state.picker === undefined
     && (state.panel === undefined || state.panel === 'transcript' || state.panel === 'changes')
-  const foot = [statusRow(state, width, tick, now, composerShown, layaElapsedMs)]
+  const foot = [statusRow(state, width, tick, now, composerShown)]
   // The composer, its rules and the status row always fit; waiting notes, the palette and the Keys box share what is left.
   const fixedHeight = header.length + indicatorLines.length + searchBarRows.length + compRows.length + bottomRule.length + foot.length
   const noteRows = composerNotes(state, width).slice(-Math.max(1, height - fixedHeight - 1))
@@ -728,18 +721,10 @@ export function App({ store, controller, terminal, whales, laya }: {
     const bodyRows: Row[] = []
 
     if (visibleItems.length === 0) {
-      // The empty conversation opens with the largest whale scene the viewport has room for above the welcome text.
-      const text = [row(''), ...indentRows([
-        row(span('What are we building?', 'accent', true)),
-        row(''),
-        row(span('/resume  continue a session    /model  choose a model\n/plan and /goal are provided by your session preset.\n\nYour conversation stays in the shared session log.', 'muted')),
-      ], '  ', width)]
-      const scene = whales.scene({ columns: sceneColumns(width), rows: viewportHeight - 1 - text.length }, width,
-        (state.motion === false ? 0 : tick) * ANIMATION_TICK_MS)
-      const welcome = [...scene === undefined ? [] : [row(''), ...scene], ...text]
-      const slice = welcome.slice(0, viewportHeight)
-      bodyRows.push(...slice)
-      while (bodyRows.length < viewportHeight) bodyRows.push(row(''))
+      // Motion off holds the fully formed whale; otherwise the loop runs from its first frame.
+      const whale = state.motion === false ? animations.still(WELCOME_SCENE, WELCOME_STILL_FRAME)
+        : animations.frame(WELCOME_SCENE, Math.max(0, tick - (welcomeStart?.tick ?? tick)) * ANIMATION_TICK_MS)
+      bodyRows.push(...welcomeRows(whale, width, viewportHeight))
     } else {
       const windowRows = docRows.slice(currentTop, currentTop + viewportHeight)
       const windowSelection = selection?.document !== undefined && effectiveSelection !== undefined
@@ -775,7 +760,7 @@ export function App({ store, controller, terminal, whales, laya }: {
     ], width, height)
   }, [
     state, width, height, approvalAllowed, panelOffset, foot, qDraft, browser, pickerSearch, pickerIndex,
-    allCommands, hasStickyHeader, activePromptMark, visibleItems, marks, tick, docRows, currentTop, whales,
+    allCommands, hasStickyHeader, activePromptMark, visibleItems, marks, tick, docRows, currentTop, animations, welcomeStart,
     viewportHeight, searchMode, searchQuery.text, hasScrollBar, linesAboveBottom, header, indicatorLines, selection, effectiveSelection,
     searchBarRows, keyRows, noteRows, compRows, cmdPopupRows, bottomRule,
   ])

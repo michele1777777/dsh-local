@@ -58,7 +58,7 @@ export function duration(ms: number): string {
   return `${Math.floor(ms / 60_000)}m ${Math.floor(ms % 60_000 / 1000)}s`
 }
 /**
- * What a running `laya_context_pruner` pass is doing, for the status line and the live mantis box.
+ * What a running `laya_context_pruner` pass is doing, for the status line and the live pruning row.
  * @param phase - the pass's latest reported phase; a pass without phase is pruning.
  * @returns the phase label.
  */
@@ -71,6 +71,15 @@ export function layaPhaseLabel(phase: LayaPhase | undefined): string {
     case 'prune': case undefined: return 'laya_context_pruner · pruning context'
     default: return assertNever(phase, 'Laya phase')
   }
+}
+/**
+ * Whether a pass in this phase is pruning. A pass without phase reports cuts from its start; release, start, stop and restore
+ * manage the model.
+ * @param phase - the pass's latest reported phase.
+ * @returns true for `prune` and for no phase.
+ */
+export function layaCutting(phase: LayaPhase | undefined): boolean {
+  return phase === undefined || phase === 'prune'
 }
 /**
  * The status-line activity label; pending interactions outrank compaction, busy text and turn progress. Background jobs are

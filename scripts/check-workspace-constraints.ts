@@ -267,7 +267,7 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // Startup and runtime share the advertised URL parser.
   '@deepseek-ai/dsh-web-app': ['lib/public-url-*.js'],
   // The terminal app bundles Ink and React; tsdown emits their shared runtime and the devtools stub as chunks.
-  // Its pre-rendered whale animations are read relative to import.meta.url from assets/whale/.
+  // Its pre-rendered braille animations are read relative to import.meta.url from assets/anim/.
   '@deepseek-ai/dsh-tui-app': ['lib/rolldown-runtime-*.js', 'lib/devtools-*.js', 'assets'],
   // The prepared-conversation parser and its type merges are separate entries the Web panel imports.
   '@deepseek-ai/dsh-prechat': ['lib/text.js', 'lib/types.js'],
