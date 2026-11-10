@@ -2,11 +2,13 @@
 import { cellWidth } from './layout.ts'
 import { safeText } from './terminal.ts'
 import type { UiAction } from './actions.ts'
-import type { Tone } from './theme.ts'
+import type { BackgroundTone, Tone } from './theme.ts'
 /** A run of text with one style; `href` emits an OSC 8 link and `action` makes the run clickable. */
 export interface Span {
   text: string
   tone?: Tone
+  /** The background under the run; themes without that tone leave the terminal background. */
+  background?: BackgroundTone
   bold?: boolean
   italic?: boolean
   inverse?: boolean
@@ -57,7 +59,7 @@ export function widthOf(text: string): number {
 function append(parts: Span[], style: Span, text: string): void {
   const last = parts.at(-1)
   if (last !== undefined && last.tone === style.tone && last.bold === style.bold && last.italic === style.italic
-    && last.inverse === style.inverse && last.underline === style.underline
+    && last.inverse === style.inverse && last.underline === style.underline && last.background === style.background
     && last.href === style.href && last.action === style.action) last.text += text
   else parts.push({ ...style, text })
 }
@@ -132,6 +134,20 @@ export function fitRow(value: Row, width: number, ellipsis = '…'): Row {
  */
 export function padText(text: string, width: number): string { return text + ' '.repeat(Math.max(0, width - widthOf(text))) }
 /**
+ * A row on a background that runs its whole width: every span takes `tone` unless it has its own background, and spaces
+ * pad the row to `width` cells.
+ * @param value - the row, no wider than `width`.
+ * @param width - cells the background covers.
+ * @param tone - the background tone.
+ * @returns the padded row, fitted to `width`.
+ */
+export function onBackground(value: Row, width: number, tone: BackgroundTone): Row {
+  const used = widthOf(textOfRow(value))
+  const spans: Span[] = value.spans.map(part => part.background === undefined ? { ...part, background: tone } : part)
+  if (used < width) spans.push({ text: ' '.repeat(width - used), background: tone })
+  return fit({ ...value, spans }, Math.max(0, width))
+}
+/**
  * A muted horizontal rule.
  * @param width - the rule width in cells.
  * @param label - optional text set into the rule's start.
@@ -184,7 +200,7 @@ export function boxBottom(width: number, tone: Tone): Row {
 }
 /**
  * Replace one span's text without moving the rest of the row: a run of `─` that ends the preceding span absorbs the width
- * difference, so a box's right border stays in its column.
+ * difference, so a rule's end stays in its column.
  * @param value - the row.
  * @param index - the span to relabel.
  * @param text - its new text.

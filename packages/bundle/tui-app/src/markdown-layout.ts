@@ -1,5 +1,5 @@
 /** Markdown-to-terminal document. No HTML evaluation or model mutation; hyperlinks are encoded only when painting. */
-import { boxBottom, boxLine, boxTop, fitRow, indentRows, row, span, textOfRow, widthOf, wrapProse, wrapRow, type Row, type Span } from './rich-text.ts'
+import { fitRow, indentRows, onBackground, row, span, textOfRow, widthOf, wrapProse, wrapRow, type Row, type Span } from './rich-text.ts'
 import { safeText } from './terminal.ts'
 import type { Tone } from './theme.ts'
 import { closesFence, fenceMarker, type Fence } from './code-blocks.ts'
@@ -67,21 +67,29 @@ function table(lines: string[], width: number): Row[] {
 }
 /** Text of the copy control in a code-block header; the document attaches the copy action to the span with exactly this text. */
 export const COPY_LABEL = 'Copy'
-/** Below this width a code block keeps its header and bottom rule but drops the side borders. */
-const CODE_BOX_MIN_WIDTH = 12
 /**
- * Lay out Markdown for the terminal. Every body line survives wrapping, including code and table cells. A fenced code block is a
- * closed box whose top border names the language and carries the {@link COPY_LABEL} control; a block the text has not closed yet
- * is closed at the end of the layout.
+ * The header row of a code block, exactly `width` cells: the language, a faint rule and the {@link COPY_LABEL} control, on
+ * the band. The language gives way before the control does.
+ */
+function codeHeader(language: string, width: number): Row {
+  // The control keeps a style no neighbour shares: spans of one style are merged, and the control is found by its exact text.
+  const copy = span(COPY_LABEL, 'comment')
+  const room = width - COPY_LABEL.length - 2
+  const name = room >= language.length + 2 ? [span(`${language} `, 'muted')] : []
+  const used = widthOf(textOfRow(row(...name))) + COPY_LABEL.length + 1
+  return { ...onBackground(width < COPY_LABEL.length ? fitRow(row(copy), width) : row(...name, span(`${'─'.repeat(Math.max(0, width - used))} `, 'muted'), copy), width, 'band'), codeHeader: true }
+}
+/**
+ * Lay out Markdown for the terminal. Every body line survives wrapping, including code and table cells. A fenced code block
+ * stands on the band background without side borders, so a terminal's own selection takes the code and nothing else; its
+ * header row names the language and carries the {@link COPY_LABEL} control.
  * @param input - Markdown source; CR and CRLF are treated as LF.
  * @param width - row width in cells.
- * @returns the rendered rows; each code-block top border has `codeHeader` set.
+ * @returns the rendered rows; each code-block header row has `codeHeader` set.
  */
 export function markdownRows(input: string, width: number): Row[] {
   const lines = input.replace(/\r\n?/gu, '\n').split('\n')
   const result: Row[] = []
-  const boxed = width >= CODE_BOX_MIN_WIDTH
-  const closeFence = (): void => { result.push(boxed ? boxBottom(width, 'muted') : row(span('─'.repeat(Math.max(0, width)), 'muted'))) }
   let fence: Fence | undefined
   for (let index = 0; index < lines.length; index++) {
     const rawLine = lines[index] ?? ''
@@ -90,15 +98,13 @@ export function markdownRows(input: string, width: number): Row[] {
     if (marker !== undefined) {
       if (fence === undefined) {
         fence = marker
-        const copy = span(COPY_LABEL, 'comment')
-        result.push({ ...(boxed ? boxTop([span(fence.language || 'code', 'muted')], width, 'muted', [copy]) : fitRow(row(copy), width)), codeHeader: true })
+        result.push(codeHeader(fence.language || 'code', width))
         continue
       }
-      if (closesFence(fence, marker)) { closeFence(); fence = undefined; continue }
+      if (closesFence(fence, marker)) { fence = undefined; continue }
     }
     if (fence !== undefined) {
-      const wrapped = wrapRow(row(...highlight(line, fence.language)), Math.max(1, boxed ? width - 4 : width))
-      for (const value of wrapped) result.push(boxed ? boxLine(value, width, 'muted') : value)
+      for (const value of wrapRow(row(...highlight(line, fence.language)), Math.max(1, width))) result.push(onBackground(value, width, 'band'))
       continue
     }
     if (line.includes('|') && /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/u.test(lines[index + 1] ?? '')) {
@@ -120,7 +126,6 @@ export function markdownRows(input: string, width: number): Row[] {
     }
     result.push(...wrapProse(row(...inline(line)), width))
   }
-  if (fence !== undefined) closeFence()
   return result.flatMap(value => wrapRow(value, width))
 }
 

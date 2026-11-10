@@ -6,12 +6,13 @@ import { selectionOf, windowAround } from './editor.ts'
 import { activeLine, cellWidth, wrapEditor, type VisualLine } from './layout.ts'
 import type { PendingApproval, PendingQuestion } from './interaction.ts'
 import type { ChatState, Picker, PickerRow } from './store.ts'
+import type { Tone } from './theme.ts'
 import { activity, contextReading, duration, goalPhase, nonnegative, recentSpeed, record, sessionIndicators, speedReading, workElapsed } from './metrics.ts'
 import { SPEED_SAMPLES } from './transcript.ts'
 import { permissionAuditLabel } from './permission-audit.ts'
 import { codeBlocks } from './code-blocks.ts'
 import { COPY_LABEL, markdownRows } from './markdown-layout.ts'
-import { BOX_MIN_WIDTH, boxBottom, boxLine, boxTop, fitRow, indentRows, padText, row, rule, span, textOfRow, twoSides, widthOf, wrapProse, wrapRow, type Row, type Span } from './rich-text.ts'
+import { BOX_MIN_WIDTH, boxBottom, boxLine, boxTop, fitRow, indentRows, onBackground, padText, row, rule, span, textOfRow, twoSides, widthOf, wrapProse, wrapRow, type Row, type Span } from './rich-text.ts'
 import { contentSummary, jsonText, safeText, tokens } from './terminal.ts'
 
 /**
@@ -69,23 +70,26 @@ const WELCOME_SIDE = 2
 
 /**
  * The empty conversation: the welcome whale above a blank row and the welcome text, the whole group centred vertically and
- * each part centred horizontally, the text as one left-aligned block. The whale appears only when its columns plus
+ * the whale and each text row centred horizontally. The whale appears only when its columns plus
  * {@link WELCOME_SIDE} cells on each side and the whole group fit; otherwise the text is centred alone. Text too wide for the
  * area wraps behind a two-cell margin.
  * @param whale - the whale frame to show, or undefined when none is available.
  * @param width - cells across the conversation area.
  * @param height - rows of the conversation area.
+ * @param place - the working directory and model, shown muted under the title; empty shows none.
  * @returns exactly `height` rows.
  */
-export function welcomeRows(whale: readonly Row[] | undefined, width: number, height: number): Row[] {
+export function welcomeRows(whale: readonly Row[] | undefined, width: number, height: number, place = ''): Row[] {
+  // The place takes the blank row under the title, so the text keeps its height.
+  const text = place === '' ? WELCOME_TEXT : WELCOME_TEXT.map((value, index) => index === 1 ? fitRow(row(span(place, 'muted')), Math.max(0, width - 2 * WELCOME_SIDE)) : value)
   const textWidth = Math.max(...WELCOME_TEXT.map(value => widthOf(textOfRow(value))))
   const pad = (rows: readonly Row[], cells: number): Row[] => rows.map(value => row(span(' '.repeat(Math.max(0, Math.floor((width - cells) / 2)))), ...value.spans))
   let group: Row[]
-  if (textWidth + 2 * WELCOME_SIDE > width) group = indentRows(WELCOME_TEXT.flatMap(value => wrapProse(value, Math.max(1, width - 2))), '  ', width)
+  if (textWidth + 2 * WELCOME_SIDE > width) group = indentRows(text.flatMap(value => wrapProse(value, Math.max(1, width - 2))), '  ', width)
   else {
     const columns = whale?.[0] === undefined ? 0 : widthOf(textOfRow(whale[0]))
-    const fits = whale !== undefined && columns + 2 * WELCOME_SIDE <= width && whale.length + 1 + WELCOME_TEXT.length <= height
-    group = [...fits ? [...pad(whale, columns), row('')] : [], ...pad(WELCOME_TEXT, textWidth)]
+    const fits = whale !== undefined && columns + 2 * WELCOME_SIDE <= width && whale.length + 1 + text.length <= height
+    group = [...fits ? [...pad(whale, columns), row('')] : [], ...text.flatMap(value => pad([value], widthOf(textOfRow(value))))]
   }
   const top = Math.max(0, Math.floor((height - group.length) / 2))
   const rows = [...Array.from({ length: top }, () => row('')), ...group].slice(0, height)
@@ -94,44 +98,74 @@ export function welcomeRows(whale: readonly Row[] | undefined, width: number, he
 }
 
 /**
- * The header: `DSH`, the session title and, on the right, the agent preset.
+ * The header: `DSH` as a filled label, the session title and, on the right, the working directory's own name and the agent
+ * preset, both muted.
  * @param state - the chat state.
  * @param width - cells available.
  * @returns the header row.
  */
 export function headerRow(state: ChatState, width: number): Row {
-  return twoSides(row(span('DSH', 'accent', true), span('  '), span(state.title || 'New session', 'text', true)), row(span(state.preset ?? '', 'muted')), width)
+  // A narrow terminal keeps the title: the directory name leaves first.
+  const folder = width < HEADER_FOLDER_MIN_WIDTH ? '' : state.cwd.split(/[\\/]/u).findLast(part => part !== '') ?? ''
+  const place = [folder, state.preset ?? ''].filter(part => part !== '').join(' · ')
+  return twoSides(row({ text: ' DSH ', tone: 'accent', bold: true, inverse: true }, span('  '), span(state.title || 'New session', 'text', true)), row(span(place, 'muted')), width)
 }
+
+/** Narrowest terminal whose header names the working directory beside the preset. */
+const HEADER_FOLDER_MIN_WIDTH = 60
 
 /** Space between entries of the indicator and status rows. */
 const GAP = '   '
 
+/** Most cells of the task meter in the indicator row; a longer checklist is scaled to it. */
+const TASK_METER = 8
+
 /**
- * The muted row under the header naming the goal, plan, tasks and an imported conversation; each entry keeps its click action.
- * The goal's title gives way first when the row is too narrow.
+ * The row under the header. Left: the goal, its title bold behind an accent mark, then the plan and an imported
+ * conversation, muted. Right: the task checklist as a meter in one colour, the done part filled in the accent tone over a
+ * faint track, the count, and the task in progress by name. Each entry keeps its click action. When the row is too narrow
+ * the task's name leaves first, then the goal's title is shortened.
  * @param state - the chat state.
  * @param width - cells available.
  * @returns the row, or undefined when there is nothing to show.
  */
 export function indicatorRow(state: ChatState, width: number): Row | undefined {
-  const indicators = sessionIndicators(state)
+  const cells = (parts: readonly Span[]): number => widthOf(textOfRow(row(...parts)))
+  const indicators = sessionIndicators(state).filter(value => value.glyph !== '☐')
   const entries: Span[][] = indicators.map((value) => {
     const own = (part: Span): Span => value.action === undefined ? part : { ...part, action: value.action }
-    return [own(span(`${value.glyph} `, 'brand')), own(span(value.label, 'muted')),
+    const goal = value.glyph === '◎'
+    return [own(span(`${value.glyph} `, goal ? 'accent' : 'brand')), own(span(value.label, goal ? 'text' : 'muted', goal)),
       ...value.detail === undefined ? [] : [own(span(`${GAP}${value.detail}`, value.tone))]]
   })
   const prechat = state.projections.prechat
   if (typeof prechat === 'number' && prechat > 0) entries.push([span('▤ ', 'brand'), span(`${prechat} imported ${prechat === 1 ? 'message' : 'messages'}`, 'muted')])
-  if (entries.length === 0) return undefined
-  const cells = (parts: readonly Span[]): number => widthOf(textOfRow(row(...parts)))
-  const total = entries.reduce((sum, parts) => sum + cells(parts), 0) + GAP.length * (entries.length - 1)
+  const todos = Array.isArray(state.projections.todos) ? state.projections.todos.map(record) : []
+  const opens = (part: Span): Span => ({ ...part, action: { kind: 'open-tasks' } })
+  let tasks: Span[] = [], current: Span[] = []
+  if (todos.length > 0) {
+    const done = todos.filter(task => task.status === 'completed').length
+    const size = Math.min(TASK_METER, todos.length), filled = Math.min(size, Math.round(done / todos.length * size))
+    tasks = [opens(span('tasks ', 'comment')), opens(span('▰'.repeat(filled), 'accent')), opens(span('▱'.repeat(size - filled), 'comment')), opens(span(` ${done}/${todos.length}`, 'muted'))]
+    const active = todos.find(task => task.status === 'in_progress')?.content
+    const name = typeof active === 'string' ? safeText(active).split('\n').map(line => line.trim()).find(line => line !== '') : undefined
+    if (name !== undefined) current = [opens(span(' · ', 'comment')), opens(span(name, 'text'))]
+  }
+  if (entries.length === 0 && tasks.length === 0) return undefined
+  const leftCells = (): number => entries.reduce((sum, parts) => sum + cells(parts), 0) + GAP.length * Math.max(0, entries.length - 1)
+  const room = (): number => width - leftCells() - (entries.length > 0 && tasks.length > 0 ? GAP.length : 0) - cells(tasks)
+  // The name of the task in progress takes what is left, and leaves when less than a few cells are.
+  if (cells(current) > room()) current = room() >= 12 ? fitRow(row(...current), room()).spans.map(opens) : []
   const [glyph, title, ...rest] = entries[0] ?? []
-  if (total > width && indicators[0]?.glyph === '◎' && glyph !== undefined && title !== undefined) {
+  if (room() < 0 && indicators[0]?.glyph === '◎' && glyph !== undefined && title !== undefined) {
     // Shorten the goal title, never the shorter plan and task entries after it.
-    const shortened = fitRow(row(title), Math.max(8, cells([title]) - (total - width))).spans
+    const shortened = fitRow(row(title), Math.max(8, cells([title]) + room())).spans
     entries[0] = [glyph, ...shortened.map(part => title.action === undefined ? part : { ...part, action: title.action }), ...rest]
   }
-  return fitRow(row(...entries.flatMap((parts, index) => index === 0 ? parts : [span(GAP), ...parts])), width)
+  const left = entries.flatMap((parts, index) => index === 0 ? parts : [span(GAP), ...parts])
+  const right = [...tasks, ...current]
+  const gap = right.length === 0 ? 0 : Math.max(left.length === 0 ? 0 : GAP.length, width - cells(left) - cells(right))
+  return fitRow(row(...left, ...gap === 0 ? [] : [span(' '.repeat(gap))], ...right), width)
 }
 
 /**
@@ -276,6 +310,30 @@ function draftLine(line: VisualLine, cursor: number | undefined, range: { start:
 }
 
 /**
+ * The rule above the draft. Staged files sit on it as chips, each with a `×` that removes it; chips that do not fit are
+ * counted, and the first one is shortened rather than left out. The draft position label follows the chips.
+ */
+function composerRule(width: number, label: string, files: readonly { readonly name: string }[]): Row {
+  if (files.length === 0) return rule(width, label)
+  const cells = (parts: readonly Span[]): number => widthOf(textOfRow(row(...parts)))
+  const tail = label === '' ? '' : `── ${label} `
+  const parts: Span[] = []
+  let shown = 0
+  for (const [index, file] of files.entries()) {
+    const rest = files.length - index - 1
+    const room = width - cells(parts) - widthOf(tail) - (rest > 0 ? widthOf(`── +${rest} more `) : 0) - 2
+    const name = `⊕ ${safeText(file.name)}`
+    if (widthOf(name) + 6 > room && (index > 0 || room < 12)) break
+    parts.push(span('── ', 'muted'), ...fitRow(row(span(name, 'text')), room - 6).spans,
+      { ...span(' × ', 'comment'), action: { kind: 'detach', index, name: file.name } })
+    shown += 1
+  }
+  if (shown < files.length) parts.push(span(`── +${files.length - shown} more `, 'muted'))
+  if (tail !== '') parts.push(span(tail, 'muted'))
+  return fitRow(row(...parts, span('─'.repeat(Math.max(0, width - cells(parts))), 'muted')), width)
+}
+
+/**
  * Visible composer lines keep UTF-16 cursor offsets; only display is escaped.
  * @param editor - the draft.
  * @param width - composer width in cells.
@@ -283,17 +341,18 @@ function draftLine(line: VisualLine, cursor: number | undefined, range: { start:
  * @param placeholder - muted text shown for an empty draft.
  * @param disabled - paints no cursor or selection.
  * @param offset - the first visible line; omitted, the window follows the cursor.
+ * @param files - files staged for the next prompt, shown as removable chips on the rule.
  * @returns a rule row followed by the visible draft rows.
  */
 export function composerRows(editor: EditorState, width: number, maxLines: number, placeholder: string,
-  disabled = false, offset?: number): Row[] {
+  disabled = false, offset?: number, files: readonly { readonly name: string }[] = []): Row[] {
   const available = Math.max(1, width - 3)
   const lines = wrapEditor(editor.text, available), active = activeLine(lines, editor.cursor)
   const size = Math.max(1, maxLines)
   const first = composerTop(lines, editor, size, offset)
   const visible = { items: lines.slice(first, first + size), offset: first }
   const range = selectionOf(editor)
-  const output = [rule(width, lines.length > 1 ? `prompt · ${active + 1}/${lines.length}` : '')]
+  const output = [composerRule(width, lines.length > 1 ? `prompt · ${active + 1}/${lines.length}` : '', files)]
   if (editor.text === '') {
     output.push(fitRow(row(span('› ', 'muted'), ...(disabled ? [] : [{ text: ' ', inverse: true }]), span(placeholder, 'muted')), width))
     return output
@@ -318,9 +377,11 @@ const NAME_CELLS = 24
 const KIND_CELLS = 10
 
 /**
- * The command palette under the composer: a tab row with per-tab counts, the commands (under headings for an empty query), and
- * a footer with the selection position and keys. The name column is sized from every listed command, so it stays put while
- * the selection scrolls; an argument hint follows the name, muted. A typed query adds a kind column from 60 cells.
+ * The command palette under the composer: a tab row with per-tab counts, the active tab filled; the commands, under
+ * headings that run into a faint rule for an empty query, the chosen one on the selection background across the row; and a
+ * footer with the selection position on the left and the keys on the right. The name column is sized from every listed
+ * command, so it stays put while the selection scrolls; an argument hint follows the name, muted. A typed query adds a kind
+ * column from 60 cells.
  * @param view - the palette layout from `paletteView`.
  * @param index - the selected entry, an index into `view.entries`.
  * @param tab - the active tab.
@@ -330,11 +391,18 @@ const KIND_CELLS = 10
  */
 export function paletteRows(view: PaletteView, index: number, tab: PaletteTab, width: number, height: number): Row[] {
   if (height < 2) return []
-  const tabs = fitRow(row(span('  '), ...PALETTE_TABS.flatMap(({ id, label }, at) => [...at === 0 ? [] : [span(width < 50 ? '  ' : GAP)],
-    { ...span(`${label} ${view.counts[id]}`, id === tab ? 'command' : 'muted', id === tab), action: { kind: 'palette-tab' as const, tab: id } }])), width)
+  const tabs = fitRow(row(span('  '), ...PALETTE_TABS.flatMap(({ id, label }, at) => {
+    const action = { kind: 'palette-tab' as const, tab: id }
+    return [...at === 0 ? [] : [span(width < 50 ? '  ' : GAP)], ...id === tab
+      ? [{ text: ` ${label} `, tone: 'accent' as const, bold: true, inverse: true, action }, { ...span(` ${view.counts[id]}`, 'accent'), action }]
+      : [{ ...span(`${label} ${view.counts[id]}`, 'muted'), action }]]
+  })), width)
   const count = view.entries.length
-  const footer = fitRow(row(span(count === 0 ? 'No matching command · ←→ category · Esc dismiss'
-    : `${index + 1}/${count} · ↑↓ choose · ←→ category · Tab complete · Enter run · Esc dismiss`, 'footer')), width)
+  const keys = count === 0 ? 'No matching command · ←→ category · Esc dismiss' : '↑↓ choose · ←→ category · Tab complete · Enter run · Esc dismiss'
+  const position = count === 0 ? '' : `  ${index + 1} of ${count}`
+  const footer = widthOf(position) + widthOf(keys) + 3 <= width
+    ? row(span(position, 'comment'), span(' '.repeat(width - widthOf(position) - widthOf(keys) - 1)), span(keys, 'muted'))
+    : fitRow(row(span(`${position.trimStart()}${position === '' ? '' : ' · '}${keys}`, 'muted')), width)
   const selected = Math.max(0, view.rows.findIndex(value => value.kind === 'entry' && value.index === index))
   const visible = windowAround(view.rows, selected, Math.max(1, Math.min(PALETTE_MAX_ROWS, height) - 2))
   const kinds = !view.grouped && width >= 60
@@ -343,26 +411,36 @@ export function paletteRows(view: PaletteView, index: number, tab: PaletteTab, w
   const longestName = Math.max(0, ...view.entries.map(named)), hintRoom = Math.min(NAME_CELLS, Math.floor((width - 4) * 0.3))
   const nameWidth = Math.min(Math.max(0, ...view.entries.map(full)), Math.max(longestName, hintRoom))
   const list = Math.min(PALETTE_MAX_ROWS, height) >= 3 ? visible.items.map((value): Row => {
-    if (value.kind === 'header') return fitRow(row(span(`  ${value.label}`, 'muted', true), ...value.detail === undefined ? [] : [span(`  ${value.detail}`, 'muted')]), width)
+    if (value.kind === 'header') {
+      // A group's heading runs into a faint rule to the edge, which separates it from the group before.
+      const heading = fitRow(row(span(`  ${value.label}`, 'muted', true), ...value.detail === undefined ? [] : [span(`  ${value.detail}`, 'muted')]), Math.max(0, width - 2))
+      return fitRow(row(...heading.spans, span(` ${'─'.repeat(Math.max(0, width - widthOf(textOfRow(heading)) - 2))}`, 'comment')), width)
+    }
     const { entry } = value, chosen = value.index === index
     // The name is never cut; its argument hint takes what the column leaves.
     const room = nameWidth - named(entry) - 1
     const hint = entry.hint === undefined || room < 2 ? [] : [span(' '), ...fitRow(row(span(entry.hint, 'muted')), room).spans]
     const name = row(span(`/${entry.name}`, 'command', chosen), ...hint)
     const kind = kinds ? [span(padText(commandKind(entry), KIND_CELLS), 'muted')] : []
-    const line = fitRow(row(span(chosen ? '❯ ' : '  ', 'command', chosen), ...name.spans, span(' '.repeat(Math.max(0, nameWidth - widthOf(textOfRow(name))) + 2)),
-      ...kind, span(entry.description, 'text')), width)
-    return { ...line, spans: line.spans.map(part => ({ ...part, action: { kind: 'command-complete' as const, name: entry.name } })) }
+    const line = fitRow(row(span(chosen ? '❯ ' : '  ', 'accent', chosen), ...name.spans, span(' '.repeat(Math.max(0, nameWidth - widthOf(textOfRow(name))) + 2)),
+      ...kind, span(entry.description, chosen ? 'text' : 'muted')), width)
+    // The chosen command stands on the selection background across the whole row.
+    const painted = chosen ? onBackground(line, width, 'select') : line
+    return { ...painted, spans: painted.spans.map(part => ({ ...part, action: { kind: 'command-complete' as const, name: entry.name } })) }
   }) : []
   return [tabs, ...list, footer]
 }
 
-/** Most queued messages and staged files listed above the composer before a summary row. */
+/** Most queued messages listed above the composer before a summary row. */
 const NOTE_ITEMS = 3
 
+/** Cells of the column that says which turn a queued message is for. */
+const QUEUE_TAG_CELLS = 11
+
 /**
- * What waits above the composer's top rule: queued messages and staged files, each with a `×` that removes it, then the
- * current error (with the command's correct form) and the current transient hint.
+ * What waits above the composer's top rule: queued messages, numbered, each with the turn it is for and a `×` at the row's
+ * end that removes it, then the current error (with the command's correct form) and the current transient hint. Staged
+ * files are on the composer's rule instead.
  * @param state - the chat state.
  * @param width - cells available.
  * @returns the rows, empty when nothing waits.
@@ -370,20 +448,16 @@ const NOTE_ITEMS = 3
 export function composerNotes(state: ChatState, width: number): Row[] {
   const output: Row[] = []
   const removable = (parts: readonly Span[], action: UiAction): Row => {
-    const text = fitRow(row(...parts), Math.max(0, width - 4))
-    return fitRow(row(...text.spans, span(GAP), { ...span('×', 'muted'), action }), width)
+    const text = fitRow(row(...parts), Math.max(0, width - 5))
+    return fitRow(row(...text.spans, span(' '.repeat(Math.max(1, width - 3 - widthOf(textOfRow(text))))), { ...span('×', 'comment'), action }), width)
   }
   const queue = state.queue.filter(item => item.placement !== 'context')
   queue.slice(0, NOTE_ITEMS).forEach((item, index) => {
     const summary = safeText(contentSummary(item.message.content)).replace(/\s+/gu, ' ')
-    output.push(removable([span('  ↳ ', 'muted'), span(item.placement === 'steering' ? 'steering this turn: ' : 'queued for the next turn: ', 'muted'), span(summary, 'text')],
+    output.push(removable([span(`  ${index + 1} `, 'comment'), span(padText(item.placement === 'steering' ? 'this turn' : 'next turn', QUEUE_TAG_CELLS), 'muted'), span(summary, 'text')],
       { kind: 'queue-remove', index }))
   })
-  if (queue.length > NOTE_ITEMS) output.push(fitRow(row(span(`  ↳ ${queue.length - NOTE_ITEMS} more queued · /tasks lists them`, 'muted')), width))
-  state.attachments.slice(0, NOTE_ITEMS).forEach((attachment, index) => {
-    output.push(removable([span('  + ', 'accent'), span(attachment.name, 'text')], { kind: 'detach', index, name: attachment.name }))
-  })
-  if (state.attachments.length > NOTE_ITEMS) output.push(fitRow(row(span(`  + ${state.attachments.length - NOTE_ITEMS} more files · /detach removes all`, 'muted')), width))
+  if (queue.length > NOTE_ITEMS) output.push(fitRow(row(span(`    +${queue.length - NOTE_ITEMS} more queued · /tasks lists them`, 'muted')), width))
   const error = state.composerError
   if (error !== undefined) {
     output.push(...indentRows(wrapProse(row(span(error.message, 'error'), ...error.usage === undefined ? [] : [span(` · usage: ${error.usage}`, 'muted')]),
@@ -462,9 +536,11 @@ export function pickerLayout(picker: Picker, rows: readonly PickerRow[], search:
     const selected = position + visible.offset === index
     const action = { kind: 'picker-select' as const, id: entry.id }
     const value = fitRow(row(span(`${selected ? '❯' : ' '} ${entry.current ? '● ' : '  '}`, 'accent'), span(entry.label, 'text', selected), span(entry.current ? '  current' : '', 'muted')), width)
-    output.push({ ...value, spans: value.spans.map(part => ({ ...part, inverse: selected, action })) })
+    // The row in focus stands on the selection background, its detail row included.
+    const painted = (line: Row): Row => selected ? onBackground(line, width, 'select') : line
+    output.push({ ...painted(value), spans: painted(value).spans.map(part => ({ ...part, action })) })
     if (itemHeight === 2) {
-      const detail = fitRow(row(span(`    ${entry.detail}`, 'muted')), width)
+      const detail = painted(fitRow(row(span(`    ${entry.detail}`, 'muted')), width))
       output.push({ ...detail, spans: detail.spans.map(part => ({ ...part, action })) })
     }
   }
@@ -512,26 +588,98 @@ export function panelLayout(title: string, details: readonly Row[], controls: re
   return { rows, page, maximum, offset }
 }
 
+/** One key a card or panel lists, with what it does; a third entry makes both words a click target. */
+type KeyHint = readonly [key: string, does: string, click?: UiAction]
+
+/** Key hints in greys: each key in the text tone before its action, muted, with faint separators. */
+function keyHints(hints: readonly KeyHint[]): Span[] {
+  return hints.flatMap(([key, does, click], index) => {
+    const own = (part: Span): Span => click === undefined ? part : { ...part, action: click }
+    return [...index === 0 ? [] : [span(' · ', 'comment')], own(span(key, 'text')), own(span(` ${does}`, 'muted'))]
+  })
+}
+
+/** Cells a card's borders and inner padding take from its width. */
+const CARD_INSET = 6
+
 /**
- * The approval panel's details: tool, owner, cwd, reason and full arguments, plus a
- * copyable command when the arguments are JSON with a `command` string.
+ * Cells a card leaves for its content.
+ * @param width - the card's total width.
+ * @returns the content width, at least 1.
+ */
+export function cardInner(width: number): number { return Math.max(1, width - CARD_INSET) }
+
+/**
+ * A closed card in one tone, which takes the composer's place while the session waits for a choice: the title and an
+ * optional tag in its top border, the details, one blank row, then the controls. The card is as tall as its content; when
+ * that exceeds `height` only the details scroll, above a position row and the pinned controls, so nothing in them is cut.
+ * @param title - the title in the top border.
+ * @param tag - muted text at the right of the top border; empty shows none.
+ * @param details - the scrollable rows, laid out for {@link cardInner} cells.
+ * @param controls - rows pinned under the details, laid out for {@link cardInner} cells.
+ * @param tone - the tone of the border and the title.
+ * @param width - cells available.
+ * @param height - most rows the card may take.
+ * @param requested - the desired scroll offset, clamped to the valid range.
+ * @returns the card rows, the details page size, the maximum offset and the clamped offset.
+ */
+export function cardLayout(title: string, tag: string, details: readonly Row[], controls: readonly Row[], tone: Tone,
+  width: number, height: number, requested: number): { rows: Row[]; page: number; maximum: number; offset: number } {
+  const line = (value: Row): Row => boxLine({ ...value, spans: [span(' '), ...value.spans] }, width, tone)
+  const top = boxTop([span(title, tone, true)], width, tone, tag === '' ? [] : [span(tag, 'muted')])
+  const lead = details.length > 0 ? [row('')] : [], between = details.length > 0 && controls.length > 0 ? [row('')] : []
+  const room = Math.max(1, height - 2)
+  if (lead.length + details.length + between.length + controls.length <= room) {
+    const rows = [top, ...[...lead, ...details, ...between, ...controls].map(line), boxBottom(width, tone)]
+    return { rows, page: Math.max(1, details.length), maximum: 0, offset: 0 }
+  }
+  const page = Math.max(1, room - controls.length - 1)
+  const maximum = Math.max(0, details.length - page), offset = Math.max(0, Math.min(maximum, requested))
+  const position = row(span(`${offset + 1}–${Math.min(details.length, offset + page)} of ${details.length} · PgUp/PgDn scroll`, 'comment'))
+  const shown = [...details.slice(offset, offset + page), position, ...controls]
+  return { rows: [top, ...shown.map(line), boxBottom(width, tone)], page, maximum, offset }
+}
+
+/** The command and the number of fields of an approval whose arguments are a JSON object; both absent otherwise. */
+function approvalRequest(pending: PendingApproval): { command?: string; fields?: number } {
+  let args: unknown
+  try { args = JSON.parse(pending.detail ?? '') } catch { /* SyntaxError: not every tool describes its arguments as JSON. */ return {} }
+  if (args === null || typeof args !== 'object' || Array.isArray(args)) return {}
+  return { fields: Object.keys(args).length, ...'command' in args && typeof args.command === 'string' ? { command: args.command } : {} }
+}
+
+/**
+ * Whether an approval's complete arguments show before the reader opens or folds them.
+ * @param pending - the pending approval.
+ * @returns true without a command, whose arguments are then the whole request.
+ */
+export function approvalArgumentsOpen(pending: PendingApproval): boolean { return approvalRequest(pending).command === undefined }
+
+/**
+ * What an approval asks for: the command on a neutral band when the arguments are JSON with a `command` string, the
+ * directory and the owner, the reason, then the complete arguments under a fold. The command is never cut. The arguments
+ * are folded only beside a command; without one they are the request, and open.
  * @param pending - the pending approval.
  * @param width - cells available.
+ * @param open - whether the complete arguments show; omitted, they show when there is no command.
  * @returns the wrapped detail rows.
  */
-export function approvalDetails(pending: PendingApproval, width: number): Row[] {
-  let command: string | undefined
-  try {
-    const args: unknown = JSON.parse(pending.detail ?? '')
-    if (args !== null && typeof args === 'object' && 'command' in args && typeof args.command === 'string') command = args.command
-  } catch { /* Not all tools use JSON. */ }
-  const invocation: Row[] = command === undefined ? [] : [row(''), twoSides(row(span('COMMAND', 'toolBash', true)), row({ ...span('[ Copy ]', 'accent', true), action: { kind: 'copy-text', text: command, label: 'requested command' } }), width),
-    ...wrapRow(row(span(command, 'text', true)), width)]
-  return [ ...wrapRow(row(span(`Tool  ${pending.toolName}`, 'warning', true)), width),
-    ...wrapRow(row(span(`Owner ${pending.owner}`, 'muted')), width),
-    ...(pending.cwd === undefined ? [] : wrapRow(row(span(`Cwd   ${pending.cwd}`, 'muted')), width)), ...invocation,
-    row(''), ...wrapRow(row(span(pending.reason ?? 'The tool requests authorization for this invocation.', 'text')), width),
-    row(''), row(span('Complete arguments', 'muted', true)), ...wrapRow(row(pending.detail ?? '(No arguments supplied by the tool)'), width)]
+export function approvalDetails(pending: PendingApproval, width: number, open?: boolean): Row[] {
+  const { command, fields } = approvalRequest(pending)
+  const shown = open ?? command === undefined
+  const band = command === undefined ? [] : wrapRow(row(span(command, 'text', true)), Math.max(1, width - 4))
+    .map((line, index) => onBackground(row(span(index === 0 ? ' $ ' : '   ', 'muted'), ...line.spans), width, 'plate'))
+  const place = row(...pending.cwd === undefined ? [] : [span('in ', 'comment'), span(pending.cwd, 'muted'), span(' · ', 'comment')],
+    span('owner ', 'comment'), span(pending.owner, 'muted'))
+  const copy = command === undefined ? [] : [{ ...span('Copy', 'accent'), action: { kind: 'copy-text' as const, text: command, label: 'requested command' } }]
+  const placed = copy.length > 0 && widthOf(textOfRow(place)) + 6 <= width
+    ? [row(...place.spans, span(' '.repeat(width - widthOf(textOfRow(place)) - 4)), ...copy)] : [...wrapRow(place, width), ...copy.length > 0 ? [row(...copy)] : []]
+  const fold = row(span(shown ? '▾ ' : '▸ ', 'muted'), span('Arguments', 'muted'),
+    ...fields === undefined ? [] : [span(` · ${fields} ${fields === 1 ? 'field' : 'fields'}`, 'comment')])
+  return [...band, ...placed, row(''),
+    ...wrapRow(row(span(pending.reason ?? 'The tool requests authorization for this invocation.', 'text')), width),
+    { ...fold, spans: fold.spans.map(part => ({ ...part, action: { kind: 'approval-arguments' as const } })) },
+    ...shown ? indentRows(wrapRow(row(span(pending.detail ?? '(No arguments supplied by the tool)', 'muted')), Math.max(1, width - 2)), '  ', width) : []]
 }
 
 /**
@@ -550,22 +698,29 @@ export function goalControls(phase: string | undefined, width: number): Row[] {
 }
 
 /**
- * The approval panel's controls: the Allow once / Reject choice, with the current one bracketed in a neutral tone, and the
- * keys, whose `Enter confirm` is also the mouse confirm target. One row when it fits, otherwise the choice above the keys.
+ * The approval card's controls: Allow once and Reject, the current one filled in the warning tone, and the keys in greys,
+ * whose `Enter confirm` is also the mouse confirm target. One row when it fits, without the arrow hint when only that
+ * fits, otherwise the choice above the keys.
  * @param width - cells available.
  * @param allowed - whether Allow once is the current choice.
  * @param count - pending approvals; above 1 the keys row shows it.
  * @returns the control rows.
  */
 export function approvalControls(width: number, allowed: boolean, count: number): Row[] {
-  const choice = (label: string, value: boolean): Span => value === allowed
-    ? { ...span(`[ ${label} ]`, 'text', true), action: { kind: 'approval-select', allowed: value } }
-    : { ...span(`  ${label}  `, 'muted'), action: { kind: 'approval-select', allowed: value } }
-  const choices = row(span(' '), choice('Allow once', true), span('  '), choice('Reject', false))
-  const keys = row(span('←→ choose · ', 'footer'), { ...span('Enter confirm', 'footer'), action: { kind: 'approval-confirm' } },
-    span(` · y select allow · n/Esc reject${count > 1 ? ` · ${count} pending` : ''}`, 'footer'))
-  const together = row(...choices.spans, span('    '), ...keys.spans)
-  return widthOf(textOfRow(together)) <= width ? [together] : [fitRow(choices, width), fitRow(keys, width)]
+  const choice = (label: string, value: boolean): Span => {
+    const action = { kind: 'approval-select' as const, allowed: value }
+    return value === allowed ? { text: `  ${label}  `, tone: 'warning', bold: true, inverse: true, action } : { ...span(`  ${label}  `, 'text'), action }
+  }
+  const choices = row(choice('Allow once', true), span('  '), choice('Reject', false))
+  const hints: KeyHint[] = [['←→', 'choose'], ['Enter', 'confirm', { kind: 'approval-confirm' }], ['y', 'select allow'], ['n/Esc', 'reject'],
+    ['a', 'arguments', { kind: 'approval-arguments' }]]
+  const waiting = count > 1 ? [span(` · ${count} pending`, 'comment')] : []
+  const keys = row(...keyHints(hints), ...waiting)
+  for (const shown of [hints, hints.slice(1)]) {
+    const together = row(...choices.spans, span('    '), ...keyHints(shown), ...waiting)
+    if (widthOf(textOfRow(together)) <= width) return [together]
+  }
+  return [fitRow(choices, width), fitRow(keys, width)]
 }
 
 /**
@@ -587,28 +742,92 @@ export function questionDetails(pending: PendingQuestion, draft: QuestionDraft, 
   return [...wrapRow(row(span(question.question, 'text', true)), width), row(''), ...detail]
 }
 
+/** Most cells of the label column in a question's options and in a short picker; longer labels are cut. */
+const OPTION_LABEL_CELLS = 28
+
 /**
- * The current question's options, custom-answer composer and confirm row.
+ * The current question's options, the custom answer and the keys. Each option has its number, which picks it, its label
+ * and its description; the one in focus stands on the selection background across the row. The custom answer is a hint
+ * row until Tab or typed text opens its composer. `Enter confirm` in the keys is also the mouse confirm target.
  * @param pending - the pending question set.
  * @param draft - the reader's progress.
  * @param width - cells available.
- * @param height - panel height, which bounds the visible options and composer lines.
+ * @param height - screen height, which bounds the visible options and composer lines.
  * @returns the control rows.
  */
 export function questionControls(pending: PendingQuestion, draft: QuestionDraft, width: number, height: number): Row[] {
   const question = pending.questions[draft.index], options = question?.options ?? []
   const visible = windowAround(options, draft.optionIndex, Math.max(1, Math.min(5, Math.floor(height / 4))))
+  const labelCells = Math.min(OPTION_LABEL_CELLS, Math.max(0, ...options.map(option => widthOf(safeText(option.label)))))
   const output: Row[] = []
   for (let position = 0; position < visible.items.length; position++) {
     const option = visible.items[position]
     if (option === undefined) continue
-    const selected = !draft.customMode && position + visible.offset === draft.optionIndex
-    const value = fitRow(row(span(`${draft.selected.includes(option.label) ? '●' : '○'} ${position + visible.offset + 1}. `, 'accent'), span(option.label, 'text', selected)), width)
-    output.push({ ...value, spans: value.spans.map(part => ({ ...part, inverse: selected, action: { kind: 'question-option' as const, index: position + visible.offset } })) })
+    const at = position + visible.offset
+    const focused = !draft.customMode && at === draft.optionIndex
+    // Enter answers a single-select question with the option in focus when none is picked, so that one shows as picked.
+    const picked = draft.selected.includes(option.label) || (focused && question?.multiSelect !== true && draft.selected.length === 0)
+    const label = fitRow(row(span(safeText(option.label), 'text', focused)), labelCells)
+    const line = fitRow(row(span(' '), span(picked ? '●' : '○', picked || focused ? 'accent' : 'comment'), span(` ${at + 1}  `, 'comment'),
+      ...label.spans, span(' '.repeat(labelCells - widthOf(textOfRow(label)) + 2)),
+      span(safeText(option.description ?? '').replace(/\s+/gu, ' '), 'muted')), width)
+    const painted = focused ? onBackground(line, width, 'select') : line
+    output.push({ ...painted, spans: painted.spans.map(part => ({ ...part, action: { kind: 'question-option' as const, index: at } })) })
   }
-  output.push(...composerRows(draft.custom, width, Math.max(1, Math.min(3, Math.floor(height / 6))), draft.customMode ? 'Type your answer…' : 'Tab to write an answer', !draft.customMode).slice(1))
-  output.push(fitRow(row({ ...span('[ Confirm ] ', 'accent', true), action: { kind: 'question-confirm' } }, span(`${options.length ? `↑↓ choose · Space ${question?.multiSelect ? 'toggle' : 'select'} · Tab custom · ` : ''}Enter confirm · Esc cancel`, 'footer')), width))
+  if (draft.customMode || draft.custom.text !== '') {
+    output.push(...composerRows(draft.custom, width, Math.max(1, Math.min(3, Math.floor(height / 6))), 'Type your answer…', !draft.customMode).slice(1))
+  } else output.push(fitRow(row(span(' ✎  ', 'comment'), span('Tab', 'text'), span('  Write your own answer', 'muted')), width))
+  const keys: KeyHint[] = [...options.length === 0 ? [] : [['↑↓', 'choose'], [options.length === 1 ? '1' : `1–${Math.min(9, options.length)}`, 'pick'],
+    ['Space', question?.multiSelect === true ? 'toggle' : 'select']] satisfies KeyHint[],
+  ['Enter', 'confirm', { kind: 'question-confirm' }], ['Tab', draft.customMode ? 'options' : 'custom'], ['Esc', 'cancel']]
+  output.push(row(''), fitRow(row(...keyHints(keys)), width))
   return output
+}
+
+/** Most rows a short picker lists in its card before it scrolls. */
+const PICKER_CARD_ROWS = 8
+
+/**
+ * Whether a picker is short enough for a card in the composer's place; sessions and skills keep the whole screen.
+ * @param picker - the open picker.
+ * @returns whether {@link pickerCard} lays it out.
+ */
+export function shortPicker(picker: Picker): boolean { return picker.kind !== 'sessions' && picker.kind !== 'skills' }
+
+/**
+ * A short picker as a card in the composer's place: the filter once text is typed, then the rows, the current one marked
+ * and the one in focus on the selection background, and the keys. `Enter select` is also the mouse confirm target.
+ * @param picker - the open picker.
+ * @param rows - its rows after filtering.
+ * @param search - the filter as typed.
+ * @param index - the row in focus.
+ * @param width - cells available.
+ * @param height - most rows the card may take.
+ * @returns the card rows.
+ */
+export function pickerCard(picker: Picker, rows: readonly PickerRow[], search: EditorState, index: number, width: number,
+  height: number): Row[] {
+  const inner = cardInner(width), body: Row[] = []
+  const filter = wrapEditor(search.text, Number.MAX_SAFE_INTEGER)[0]
+  if (filter !== undefined && search.text !== '') body.push(fitRow(row(span('⌕ ', 'accent', true), ...draftLine(filter, search.cursor, undefined)), inner))
+  const visible = windowAround(rows, index, Math.max(1, Math.min(PICKER_CARD_ROWS, height - body.length - 4)))
+  const labelCells = Math.min(OPTION_LABEL_CELLS, Math.max(0, ...rows.map(entry => widthOf(safeText(entry.label)))))
+  for (let position = 0; position < visible.items.length; position++) {
+    const entry = visible.items[position]
+    if (entry === undefined) continue
+    const focused = position + visible.offset === index, end = entry.current === true ? 'current ' : ''
+    const label = fitRow(row(span(safeText(entry.label), 'text', focused)), labelCells)
+    const line = fitRow(row(span(focused ? '❯ ' : '  ', 'accent', true), span(entry.current === true ? '● ' : '  ', 'accent'), ...label.spans,
+      span(' '.repeat(labelCells - widthOf(textOfRow(label)) + 2)), span(safeText(entry.detail).replace(/\s+/gu, ' '), 'muted')), Math.max(0, inner - widthOf(end) - 1))
+    const whole = row(...line.spans, span(' '.repeat(inner - widthOf(textOfRow(line)) - widthOf(end))), span(end, 'comment'))
+    const painted = focused ? onBackground(whole, inner, 'select') : whole
+    body.push({ ...painted, spans: painted.spans.map(part => ({ ...part, action: { kind: 'picker-select' as const, id: entry.id } })) })
+  }
+  if (rows.length === 0) body.push(fitRow(row(span('No matches. Change the filter or press Esc.', 'muted')), inner))
+  const chosen = rows[index]
+  body.push(row(''), fitRow(row(...keyHints([['↑↓', 'choose'], chosen === undefined ? ['Enter', 'select'] : ['Enter', 'select', { kind: 'picker-confirm', id: chosen.id }],
+    ['type', 'to filter'], ['Esc', 'close']])), inner))
+  return cardLayout(picker.title, rows.length === 0 ? '' : `${index + 1} of ${rows.length}`, [], body, 'accent', width, height, 0).rows
 }
 
 /** Projection values arrive untyped; scalars print as themselves, structures as JSON, and absence as a dash. */
@@ -669,6 +888,68 @@ function jobRows(state: ChatState, width: number, now: number): Row[] {
   })
 }
 
+/** A section heading of an inspector panel, with an optional faint note after it. */
+const heading = (title: string, note = ''): Row => row(span(title, 'accent', true), ...note === '' ? [] : [span(`   ${note}`, 'comment')])
+
+/** `left`, cut when needed, with `note` at the row's end. */
+function ended(left: Row, note: string, width: number, tone: Tone = 'comment'): Row {
+  const fitted = fitRow(left, Math.max(0, width - widthOf(note) - 2))
+  return row(...fitted.spans, span(' '.repeat(Math.max(1, width - widthOf(textOfRow(fitted)) - widthOf(note)))), span(note, tone))
+}
+
+/** Cells of the meters that compare token counts in the context panel. */
+const BAR_CELLS = 16
+
+/**
+ * One row per count: the label, a meter scaled to the largest count, and the count. A missing count shows a dash and an
+ * empty meter; a narrow panel leaves the meters out.
+ */
+function barRows(entries: readonly (readonly [string, number | undefined])[], width: number): Row[] {
+  const most = Math.max(1, ...entries.map(([, value]) => value ?? 0))
+  const labelCells = Math.max(0, ...entries.map(([label]) => widthOf(label))) + 2
+  return entries.map(([label, value]) => {
+    const filled = value === undefined || value === 0 ? 0 : Math.max(1, Math.round(value / most * BAR_CELLS))
+    return row(span(padText(label, labelCells), 'muted'), ...labelCells + BAR_CELLS + 10 > width ? []
+      : [span('▰'.repeat(filled), 'accent'), span('▱'.repeat(BAR_CELLS - filled), 'comment'), span('  ')],
+    span(value === undefined ? '—' : tokens(value), value === undefined || value === 0 ? 'comment' : 'text', true))
+  })
+}
+
+/** The keys of the help panel by section: each key with what it does. */
+const KEY_SECTIONS: readonly (readonly [string, readonly (readonly [string, string])[]])[] = [
+  ['Write', [['Enter', 'send'], ['Alt+Enter · Ctrl+J', 'new line'], ['/', 'command palette'], ['?', 'main keys (empty prompt)'],
+    ['Ctrl+R', 'search prompt history'], ['Ctrl+S', 'stash or restore a draft'], ['Ctrl+G', 'edit the prompt in $EDITOR'], ['Alt+V', 'stage a clipboard image']]],
+  ['While a turn runs', [['Enter', 'steer this turn'], ['Tab', 'queue for the next turn'], ['Enter, empty prompt', 'send pending messages now'], ['Esc', 'close a panel or interrupt']]],
+  ['Read', [['PgUp · PgDn', 'scroll the conversation'], ['Shift+↑ · ↓', 'one line'], ['Ctrl+Home · End', 'start · end'], ['End', 'back to the latest'],
+    ['Ctrl+F', 'search the transcript'], ['n · N', 'next · previous match'], ['Ctrl+O', 'transcript focus'], ['Alt+G', 'goal']]],
+  ['Mouse', [['click Thinking', 'show or hide the reasoning'], ['click a tool row', 'open or fold its details'], ['click Copy', 'copy that code block'],
+    ['click the goal', 'open the goal'], ['click ×', 'remove a queued item or file'], ['click the preset', 'choose the permission preset']]],
+]
+
+/** Narrowest help panel that sets the key table in two columns. */
+const KEY_TABLE_TWO_COLUMNS = 96
+
+/** The help panel's key table: sections of keys and actions, in two columns when the panel is wide enough. */
+function keyTable(width: number): Row[] {
+  const output: Row[] = []
+  const keyCells = Math.max(...KEY_SECTIONS.flatMap(([, keys]) => keys.map(([key]) => widthOf(key)))) + 2
+  const columns = width >= KEY_TABLE_TWO_COLUMNS ? 2 : 1, column = Math.floor(width / columns)
+  const entry = ([key, does]: readonly [string, string], last: boolean): Span[] => {
+    const fitted = fitRow(row(span(padText(key, keyCells), 'footer'), span(does, 'text')), column - (last ? 0 : 2))
+    return [...fitted.spans, ...last ? [] : [span(' '.repeat(column - widthOf(textOfRow(fitted))))]]
+  }
+  for (const [title, keys] of KEY_SECTIONS) {
+    output.push(heading(title))
+    const half = Math.ceil(keys.length / columns)
+    for (let at = 0; at < half; at++) {
+      const second = columns === 2 ? keys[at + half] : undefined, first = keys[at]
+      if (first !== undefined) output.push(row(...entry(first, second === undefined), ...second === undefined ? [] : entry(second, true)))
+    }
+    output.push(row(''))
+  }
+  return output
+}
+
 /**
  * The body of an inspector panel (help, permissions, goal, jobs, tasks or the default status view).
  * @param state - the chat state.
@@ -681,7 +962,7 @@ function jobRows(state: ChatState, width: number, now: number): Row[] {
 export function inspectorRows(state: ChatState, panel: ChatState['panel'], commands: readonly CommandEntry[], width: number, now = Date.now()): Row[] {
   const output: Row[] = []
   if (panel === 'help') {
-    output.push(row(span('Keyboard', 'accent', true)), ...markdownRows([
+    output.push(...keyTable(width), heading('Details'), ...markdownRows([
       'Enter: send · Alt/Shift+Enter or Ctrl+J: newline (terminal support varies) · ? on an empty prompt: the main keys above the composer, until Esc or the next key.',
       '/ opens the command palette: ↑↓ choose, Tab completes, Enter runs; ←→ at the end of the query switch between All, Agent, Skills and Terminal.',
       'While a turn runs, Enter steers it: the agent reads the message at its next step. Tab (or /queue add text) holds it for the next turn instead.',
@@ -689,13 +970,13 @@ export function inspectorRows(state: ChatState, panel: ChatState['panel'], comma
       'Interrupting a turn starts your queued messages next; interrupting them as well keeps the rest queued.',
       'PgUp/PgDn: scroll conversation · Shift+↑/↓: scroll one line · End or click [↓ Back to bottom]: jump to latest.',
       'Click on Thinking: reveal or mask the model reasoning inline.',
-      'Click a tool row: open its details card inline in the chat; click the card heading to fold it back into one row.',
+      'Click a tool row: open its details inline in the chat, behind a rail; click its title row to fold it back into one row.',
       'Ctrl+Home/End: start/end · Ctrl+O: transcript focus.',
       'Ctrl+F: search the full transcript, including folded details · n/N: next/previous.',
       'Alt+G or a click on the goal under the header: the full objective, with Edit (into the composer), Pause/Resume and Clear.',
       'Ctrl+R: search prompt history · Ctrl+S: stash/restore a draft.',
       'Click Copy on a code block: copy exact code · /copy: last answer · /copy code: last code block.',
-      'Click × beside a queued message or a staged file above the composer to remove it.',
+      'Click × at the end of a queued message or on a staged file in the composer rule to remove it.',
       'Ctrl+G or /editor: edit the prompt in VISUAL/EDITOR · never auto-sends.',
       'Alt+V or /paste-image: stage a clipboard image for the next prompt.',
       '/resume searches saved content in-page; previewing never activates a session.',
@@ -705,20 +986,29 @@ export function inspectorRows(state: ChatState, panel: ChatState['panel'], comma
     for (const entry of commands) output.push(...wrapRow(row(span(`/${entry.name}${entry.hint === undefined ? '' : ` <${entry.hint}>` }  `, 'command'), entry.description), width))
   } else if (panel === 'permissions') {
     const permission = record(state.projections.permissions).currentValue
-    output.push(...keyValue('Permission preset', typeof permission === 'string' ? permission : undefined, width), ...keyValue('Effective policy', state.approvalPolicy, width), ...markdownRows(state.approvalPolicy === 'never'
+    // The preset in force is a filled label; the policy it resolves to follows, muted.
+    output.push(row(span('Preset   ', 'muted'), { text: ` ${typeof permission === 'string' ? permission : '—'} `, tone: 'accent', bold: true, inverse: true },
+      span('   policy ', 'comment'), span(shown(state.approvalPolicy), 'text')), ...markdownRows(state.approvalPolicy === 'never'
       ? 'The core rejects requests that need approval. “Never” does not mean automatic approval.'
       : permission === 'smart' ? 'Smart uses a separate same-model request for eligible sandbox escalations. Only low-risk decisions can grant this invocation. High-risk, ambiguous, invalid or timed-out reviews fall back to the existing human dialog. Extra tokens are not included in the agent context or its decode metrics.'
         : state.approvalPolicy === 'ask' ? 'When the core asks, choose **Allow once** or **Reject**. Grants do not persist to the session. The pending dialog defaults to Reject.'
           : 'The approval service is not available in this session preset.', width), row(''))
-    output.push(...markdownRows('Use /auto-approve smart, /auto-approve manual, or /auto-approve history. Smart is not a security guarantee. Full access is separate and requires explicit confirmation.', width))
-    output.push(row(''), row(span('Permission audit · latest 50 questions', 'accent', true)))
-    for (const item of state.permissionAudit ?? []) {
-      output.push(...wrapRow(row(span(permissionAuditLabel(item), item.outcome === 'allowed-once' ? 'success' : item.outcome === 'rejected' ? 'warning' : 'muted')), width))
-      if (item.review !== undefined) output.push(...wrapRow(row(span(`  ${item.review.reason} · ${duration(item.review.durationMs)}`, 'muted')), width))
-      if (item.owner !== state.sessionId) output.push(...wrapRow(row(span(`  subagent ${item.owner}`, 'muted')), width))
+    const audit = state.permissionAudit ?? []
+    output.push(audit.length === 0 ? ended(heading('Recent requests', 'latest 50'), 'none', width) : heading('Recent requests', 'latest 50'))
+    const toolCells = Math.min(20, Math.max(0, ...audit.map(item => widthOf(safeText(item.toolName)))))
+    for (const item of audit) {
+      const at = new Date(item.time), clock = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+      // The label names the tool first; the table gives the tool its own column.
+      const decision = permissionAuditLabel(item).slice(item.toolName.length + 3).replace('allowed-once', 'allowed once')
+      output.push(...wrapRow(row(span(`${clock}   `, 'comment'), span(padText(safeText(item.toolName), toolCells + 3), 'text'),
+        span(decision, item.outcome === 'allowed-once' ? 'text' : 'muted'), ...item.owner === state.sessionId ? [] : [span(`   subagent ${item.owner}`, 'comment')]), width))
+      if (item.review !== undefined) output.push(...wrapRow(row(span(`        ${item.review.reason} · ${duration(item.review.durationMs)}`, 'muted')), width))
     }
-    output.push(...markdownRows('This is a read-only inspector. Policy, tool availability, sandboxing and admission remain owned by the same services as Web. This panel is not a sandbox guarantee.', width))
-    for (const pending of state.pending) if (pending.kind === 'approval') output.push(row(''), ...approvalDetails(pending, width))
+    output.push(row(''), ...markdownRows('Use /auto-approve smart, /auto-approve manual, or /auto-approve history. Smart is not a security guarantee. Full access is separate and requires explicit confirmation.', width))
+    output.push(row(''), ...markdownRows('This is a read-only inspector. Policy, tool availability, sandboxing and admission remain owned by the same services as Web. This panel is not a sandbox guarantee.', width))
+    for (const pending of state.pending) {
+      if (pending.kind === 'approval') output.push(row(''), row(span('Waiting for a decision · ', 'warning', true), span(pending.toolName, 'text', true)), ...approvalDetails(pending, width, true))
+    }
   } else if (panel === 'goal') {
     const projected = record(state.projections.goal), goal = record(projected.goal)
     if (typeof goal.objective !== 'string') output.push(row(span('No goal in this session. Start one with /goal <objective>.', 'muted')))
@@ -728,7 +1018,10 @@ export function inspectorRows(state: ChatState, panel: ChatState['panel'], comma
       output.push(row(''), row(span('Objective', 'accent', true)), ...markdownRows(goal.objective, width))
     }
   } else if (panel === 'jobs') {
-    output.push(row({ ...span('[ All jobs ]', 'accent', true), action: { kind: 'open-jobs' } }), row(''))
+    const counts = (['running', 'stopping', 'failed', 'killed', 'completed'] as const)
+      .map(status => [status, state.jobs.filter(item => item.status === status).length] as const).filter(([, count]) => count > 0)
+      .map(([status, count]) => `${count} ${status === 'completed' ? 'done' : status}`).join(' · ')
+    output.push(row({ ...span('[ All jobs ]', 'accent', true), action: { kind: 'open-jobs' } }, ...counts === '' ? [] : [span(`   ${counts}`, 'muted')]), row(''))
     const job = state.jobs.find(item => item.id === state.selectedJob)
     if (state.selectedJob === undefined) output.push(...jobRows(state, width, now))
     else if (job === undefined) output.push(row(span('This job is no longer available.', 'muted')))
@@ -744,47 +1037,79 @@ export function inspectorRows(state: ChatState, panel: ChatState['panel'], comma
       output.push(...wrapRow(row(safeText(view?.text || (view === undefined ? 'Loading output…' : view.streaming ? 'Waiting for output…' : 'No output.'))), width))
     }
   } else if (panel === 'tasks') {
-    output.push(...sessionIndicators(state).flatMap(value => wrapRow(row(span(`${value.glyph} `, 'brand'), span(value.label, 'text'),
-      ...value.detail === undefined ? [] : [span(` · ${value.detail}`, value.tone)]), width)))
+    for (const value of sessionIndicators(state).filter(item => item.glyph !== '☐')) {
+      const goal = value.glyph === '◎'
+      const left = row(span(`${value.glyph} `, goal ? 'accent' : 'muted'), span(value.label, 'text', goal))
+      const note = value.detail ?? (goal ? `goal · ${goalPhase(state) ?? 'saved'}` : '')
+      output.push(note === '' ? fitRow(left, width) : ended(left, note, width, value.tone))
+    }
     const goal = record(record(state.projections.goal).goal)
     if (typeof goal.blockedReason === 'string') output.push(...keyValue('Blocked reason', goal.blockedReason, width))
+    if (output.length > 0) output.push(row(''))
     const todos = Array.isArray(state.projections.todos) ? state.projections.todos.map(record) : []
-    output.push(row(''), row(span('Task checklist', 'accent', true)))
-    if (todos.length === 0) output.push(row(span('No current task checklist.', 'muted')))
-    for (const task of todos) output.push(...wrapRow(row(span(`${task.status === 'completed' ? '✓' : task.status === 'in_progress' ? '◌' : '○'} [${shown(task.status, 'unknown')}] `, task.status === 'completed' ? 'success' : task.status === 'in_progress' ? 'accent' : 'muted'), shown(task.content, '')), width))
-    output.push(row(''), row(span('Background jobs', 'accent', true)))
-    output.push(...jobRows(state, width, now))
-    output.push(row(''), row(span('Queued messages', 'accent', true)))
-    if (state.queue.length === 0) output.push(row(span('No queued messages.', 'muted')))
-    state.queue.forEach((item, index) => output.push(...wrapRow(row(`${index + 1}. [${item.placement}] ${contentSummary(item.message.content)}`), width)))
+    if (todos.length === 0) output.push(ended(heading('Checklist'), 'none', width))
+    else {
+      const done = todos.filter(task => task.status === 'completed').length, size = Math.min(TASK_METER, todos.length)
+      const filled = Math.min(size, Math.round(done / todos.length * size))
+      output.push(row(...heading('Checklist').spans, span('   '), span('▰'.repeat(filled), 'accent'), span('▱'.repeat(size - filled), 'comment'), span(`  ${done} of ${todos.length}`, 'muted')))
+      for (const task of todos) {
+        const finished = task.status === 'completed', active = task.status === 'in_progress'
+        const note = finished ? 'done' : active ? 'in progress' : task.status === 'pending' ? '' : shown(task.status, 'unknown')
+        const lines = wrapProse(row(span(shown(task.content, ''), finished ? 'muted' : 'text', active)), Math.max(1, width - 7 - widthOf(note)))
+        lines.forEach((line, index) => {
+          const left = row(span(index === 0 ? `  ${finished ? '✓' : active ? '◐' : '○'}  ` : '     ', finished ? 'success' : active ? 'accent' : 'muted'), ...line.spans)
+          output.push(index === 0 && note !== '' ? ended(left, note, width) : left)
+        })
+      }
+    }
+    output.push(row(''))
+    if (state.jobs.length === 0) output.push(ended(heading('Background jobs'), 'none', width))
+    else output.push(heading('Background jobs'), ...jobRows(state, width, now))
+    if (state.queue.length === 0) output.push(ended(heading('Queued messages'), 'none', width))
+    else {
+      output.push(heading('Queued messages'))
+      state.queue.forEach((item, index) => output.push(...wrapRow(row(span(`  ${index + 1} `, 'comment'),
+        span(padText(item.placement === 'steering' ? 'this turn' : item.placement === 'context' ? 'context' : 'next turn', QUEUE_TAG_CELLS), 'muted'),
+        span(safeText(contentSummary(item.message.content)).replace(/\s+/gu, ' '), 'text')), width)))
+    }
     output.push(row(''), ...markdownRows('Use the existing /goal, /plan and /queue commands to act. /queue remove N, /queue steer N and /queue edit N text use the shared controller. The checklist is the same current todos projection shown by Web; historical lists remain in the transcript.', width))
   } else {
     const pressure = contextReading(state.projections), speed = speedReading(state.projections)
     const usage = record(state.projections.tokenUsage), stats = record(state.projections.sessionStats)
-    output.push(...keyValue('Session', state.sessionId, width), ...keyValue('Directory', state.cwd, width), ...keyValue('Preset', state.preset, width),
-      ...keyValue('Model', `${state.selection.provider}/${state.selection.model}`, width), ...keyValue('Effort', state.selection.reasoningEffort ?? 'provider default', width), row(''),
-      row(span('Context · latest host projection', 'accent', true)), ...keyValue('Pressure', pressure.label, width),
-      ...markdownRows('Context pressure is approximate and may lag a model or session change. It is not the accumulated usage total. Compaction policy and thresholds come from the preset, not this interface.', width), row(''),
-      row(span('Accumulated usage · provider accounting', 'accent', true)))
-    for (const [label, field] of [['Uncached input', 'uncachedInputTokens'], ['Cache read', 'cacheReadTokens'], ['Cache write', 'cacheWriteTokens'], ['Output (includes reasoning)', 'outputTokens']] as const) {
-      const value = nonnegative(usage[field]); output.push(...keyValue(label, value === undefined ? '—' : tokens(value), width))
+    output.push(...wrapRow(row(span(state.title || 'New session', 'text', true),
+      span(`   ${state.cwd} · ${state.preset ?? 'no preset'} · ${state.selection.provider}/${state.selection.model} · effort ${state.selection.reasoningEffort ?? 'provider default'}`, 'muted')), width),
+    row(span(state.sessionId, 'comment')), row(''), heading('Context', 'latest host projection'))
+    if (pressure.ratio === undefined || pressure.used === undefined || pressure.maximum === undefined) output.push(...keyValue('Pressure', pressure.label, width))
+    else {
+      const size = Math.max(8, Math.min(50, width - 24))
+      const filled = Math.min(size, Math.max(pressure.used > 0 ? 1 : 0, Math.round(pressure.ratio * size)))
+      const tone = pressure.ratio >= 0.8 ? 'warning' : 'accent'
+      output.push(row(span('▰'.repeat(filled), tone), span('▱'.repeat(size - filled), 'comment'), span(`  ${Math.round(pressure.ratio * 100)}%`, tone, true),
+        span(`  ${tokens(pressure.used)} of ${tokens(pressure.maximum)}`, 'muted')))
     }
+    output.push(row(''), heading('Tokens used', 'provider accounting, accumulated'))
+    const fields = [['Cache read', 'cacheReadTokens'], ['Uncached input', 'uncachedInputTokens'], ['Output (includes reasoning)', 'outputTokens'], ['Cache write', 'cacheWriteTokens']] as const
+    output.push(...barRows(fields.map(([label, field]) => [label, nonnegative(usage[field])] as const), width))
     const recent = recentSpeed(state.transcript)
-    output.push(row(''), row(span(`Speed · latest ${String(SPEED_SAMPLES)} responses, shown in the status line`, 'accent', true)),
+    output.push(row(''), heading(`Speed · latest ${String(SPEED_SAMPLES)} responses`, 'shown in the status line'),
       ...keyValue('Prefill', recent.prefill === undefined ? '—' : `${rate(recent.prefill)} tok/s`, width),
       ...keyValue('Decode', recent.decode === undefined ? '—' : `${rate(recent.decode)} tok/s`, width),
-      ...markdownRows(`Summed tokens over summed wall time of the latest ${String(SPEED_SAMPLES)} model responses, so long responses weigh more. Prefill = uncached input tokens / time from step start to the first token; that time also includes request preparation, queueing, transport and any pruning before the request. Decode = output tokens, reasoning included / time from the first token to the committed message.`, width),
-      row(''), row(span('Performance · session averages, not live GPU speed', 'accent', true)),
+      row(''), heading('Session averages', 'not live GPU speed'),
       ...keyValue('Decode', speed.decode === undefined ? '—' : `${speed.decode.toFixed(2)} tok/s (timed streamed steps)`, width),
       ...keyValue('Time to first token', speed.ttftMs === undefined ? '—' : duration(speed.ttftMs), width),
-      ...keyValue('Completed steps / turns', `${shown(stats.steps)} / ${shown(stats.turns)}`, width),
-      ...markdownRows('Decode = timed output tokens / streaming wall time over the whole session. TTFT is an observed latency and includes transport or scheduling overhead. Missing measurements remain “—”.', width))
+      ...keyValue('Completed steps / turns', `${shown(stats.steps)} / ${shown(stats.turns)}`, width))
     const breakdown = record(state.projections.contextBreakdown)
-    if (Object.keys(breakdown).length > 0) {
-      output.push(row(''), row(span('Context composition · heuristic estimate', 'accent', true)))
-      for (const [label, field] of [['System', 'systemTokens'], ['Tool schemas', 'toolsTokens'], ['Messages', 'messageTokens']] as const) output.push(...keyValue(label, breakdown[field], width))
-      output.push(...markdownRows('These estimates are a separate breakdown; do not add them to provider usage.', width))
+    const composed = Object.keys(breakdown).length > 0
+    if (composed) {
+      output.push(row(''), heading('Context composition', 'heuristic estimate'),
+        ...barRows(([['System', 'systemTokens'], ['Tool schemas', 'toolsTokens'], ['Messages', 'messageTokens']] as const).map(([label, field]) => [label, nonnegative(breakdown[field])] as const), width))
     }
+    // The explanations follow the figures, so the figures fit one screen.
+    output.push(row(''), heading('How these numbers are measured'),
+      ...markdownRows('Context pressure is approximate and may lag a model or session change. It is not the accumulated usage total. Compaction policy and thresholds come from the preset, not this interface.', width), row(''),
+      ...markdownRows(`Summed tokens over summed wall time of the latest ${String(SPEED_SAMPLES)} model responses, so long responses weigh more. Prefill = uncached input tokens / time from step start to the first token; that time also includes request preparation, queueing, transport and any pruning before the request. Decode = output tokens, reasoning included / time from the first token to the committed message.`, width), row(''),
+      ...markdownRows('Decode = timed output tokens / streaming wall time over the whole session. TTFT is an observed latency and includes transport or scheduling overhead. Missing measurements remain “—”.', width),
+      ...composed ? [row(''), ...markdownRows('The composition estimates are a separate breakdown; do not add them to provider usage.', width)] : [])
   }
   return output.flatMap(value => wrapRow(value, width))
 }
@@ -803,14 +1128,65 @@ export function fitScreen(rows: readonly Row[], width: number, height: number): 
 }
 
 /**
- * Underlines a row containing a search match, case-insensitively.
+ * Marks each search match in a row, case-insensitively: the matched text alone stands on the match background, and in the
+ * row the search is on, the first match is filled in the accent tone instead. A row whose lower-case form has another
+ * length than its text cannot be split at the match, and is underlined whole.
  * @param value - the row.
  * @param query - the search text; empty leaves the row unchanged.
- * @returns the underlined row, or `value` without a match.
+ * @param current - whether this is the row of the current match.
+ * @returns the marked row, or `value` without a match.
  */
-export function highlightRow(value: Row, query: string): Row {
+export function highlightRow(value: Row, query: string, current = false): Row {
   if (query === '') return value
-  const needle = safeText(query).toLocaleLowerCase(), full = textOfRow(value).toLocaleLowerCase()
-  if (!full.includes(needle)) return value
-  return { ...value, spans: value.spans.map(part => ({ ...part, underline: true })) }
+  const text = textOfRow(value), needle = safeText(query).toLocaleLowerCase(), full = text.toLocaleLowerCase()
+  if (needle === '' || !full.includes(needle)) return value
+  if (full.length !== text.length) return { ...value, spans: value.spans.map(part => ({ ...part, underline: true })) }
+  const starts: number[] = []
+  for (let at = full.indexOf(needle); at >= 0; at = full.indexOf(needle, at + needle.length)) starts.push(at)
+  const spans: Span[] = []
+  let offset = 0
+  for (const part of value.spans) {
+    const end = offset + part.text.length
+    let from = offset
+    for (const [index, start] of starts.entries()) {
+      const first = Math.max(from, start), last = Math.min(end, start + needle.length)
+      if (first >= last) continue
+      if (first > from) spans.push({ ...part, text: text.slice(from, first) })
+      const { background: _own, ...plain } = part
+      spans.push(current && index === 0
+        ? { ...plain, text: text.slice(first, last), tone: 'accent', bold: true, inverse: true }
+        : { ...part, text: text.slice(first, last), background: 'hit' })
+      from = last
+    }
+    if (from < end) spans.push({ ...part, text: text.slice(from, end) })
+    offset = end
+  }
+  return { ...value, spans }
+}
+
+/**
+ * The search field that takes the composer's line while a search is open: a mark, the query with its cursor, an optional
+ * note after it, and on the right the match position and the keys that apply, in greys.
+ * @param query - the search text as edited.
+ * @param editing - whether keys still edit the query, which paints its cursor.
+ * @param note - muted text after the query, such as the history entry found.
+ * @param position - the match position, such as `1 of 3`; empty shows none.
+ * @param keys - the keys that apply now, each with its action.
+ * @param width - cells available.
+ * @returns the field row.
+ */
+export function searchFieldRow(query: EditorState, editing: boolean, note: string, position: string,
+  keys: readonly (readonly [string, string])[], width: number): Row {
+  const right = row(...position === '' ? [] : [span(position, 'text'), span(GAP)],
+    ...keyHints(keys), span(' '))
+  const line = wrapEditor(query.text, Number.MAX_SAFE_INTEGER)[0]
+  const field = line === undefined || query.text === ''
+    ? [...editing ? [{ text: ' ', inverse: true }] : [], span('Type to search…', 'muted')]
+    : draftLine(line, editing ? query.cursor : undefined, undefined)
+  const left = row(span('⌕ ', 'accent', true), ...field, ...note === '' ? [] : [span(`${GAP}${note}`, 'muted')])
+  const rightCells = widthOf(textOfRow(right))
+  // The keys leave before the query is cut.
+  if (rightCells + 12 > width) return fitRow(left, width)
+  const fitted = fitRow(left, width - rightCells - 1)
+  return row(...fitted.spans, span(' '.repeat(width - rightCells - widthOf(textOfRow(fitted)))), ...right.spans)
 }

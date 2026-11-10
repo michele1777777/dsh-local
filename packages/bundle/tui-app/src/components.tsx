@@ -17,10 +17,14 @@ const ScreenLine = memo(function ScreenLine({ line, width, theme }: { line: Row;
   return <Box width={width} height={1} flexShrink={0}>
     <Text wrap="truncate-end">{line.spans.map((part, position) => {
       const color = colours[part.tone ?? 'text']
+      const backgroundColor = part.background === undefined ? undefined : colours[part.background]
+      // A theme without background colours still marks the chosen row and a search match, as inverse video.
+      const marked = part.background !== undefined && backgroundColor === undefined && (part.background === 'select' || part.background === 'hit')
       return <Text key={position}
         {...color === undefined ? {} : { color }}
+        {...backgroundColor === undefined ? {} : { backgroundColor }}
         bold={part.bold === true} italic={part.italic === true}
-        inverse={part.inverse === true} underline={part.underline === true}>
+        inverse={part.inverse === true || marked} underline={part.underline === true}>
         {part.href === undefined ? part.text : osc8(part.text, part.href)}
       </Text>
     })}</Text>
@@ -31,5 +35,5 @@ const ScreenLine = memo(function ScreenLine({ line, width, theme }: { line: Row;
       const next = after.line.spans[index]
       return next !== undefined && part.text === next.text && part.tone === next.tone
         && part.bold === next.bold && part.italic === next.italic && part.inverse === next.inverse
-        && part.underline === next.underline && part.href === next.href
+        && part.underline === next.underline && part.href === next.href && part.background === next.background
     }))))

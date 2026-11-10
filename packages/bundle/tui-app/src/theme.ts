@@ -22,13 +22,28 @@ export type Tone =
   | 'toolRead'
   | 'toolSearch'
   | 'toolWeb'
+  | 'band'
+  | 'plate'
+  | 'select'
+  | 'hit'
+  | 'added'
+  | 'addedStrong'
+  | 'removed'
+  | 'removedStrong'
+
+/**
+ * Tones meant as a span's background: `band` under a user prompt and a code block, `plate` under a requested command,
+ * `select` under the chosen row of a list, `hit` under a search match, and the four diff tones under changed lines and the
+ * changed part inside them. The `mono` theme has none; there a `select` or `hit` background shows as inverse video.
+ */
+export type BackgroundTone = 'band' | 'plate' | 'select' | 'hit' | 'added' | 'addedStrong' | 'removed' | 'removedStrong'
 
 /** Colour per tone; undefined leaves the terminal default. */
 export type Palette = Readonly<Record<Tone, string | undefined>>
 
 const dark: Palette = {
   text: undefined,
-  muted: '#7f849c',
+  muted: '#82879e',
   accent: 'cyan',
   success: 'green',
   warning: 'yellow',
@@ -37,9 +52,9 @@ const dark: Palette = {
   keyword: 'magenta',
   string: 'green',
   number: 'yellow',
-  comment: '#6c7086',
+  comment: '#83869b',
   command: '#5fafff',
-  brand: '#4d6bfe',
+  brand: '#617cfe',
   footer: '#89b4fa',
   toolBash: '#ffaf00',
   toolEdit: '#5fafff',
@@ -47,6 +62,14 @@ const dark: Palette = {
   toolRead: '#00d7ff',
   toolSearch: '#ff87d7',
   toolWeb: '#af87ff',
+  band: '#1b1c2b',
+  plate: '#222225',
+  select: '#262a44',
+  hit: '#1c4444',
+  added: '#14301f',
+  addedStrong: '#1f5c36',
+  removed: '#3a1a22',
+  removedStrong: '#74293a',
 }
 
 const light: Palette = {
@@ -61,15 +84,23 @@ const light: Palette = {
   string: '#008700',
   number: '#875f00',
   comment: '#626262',
-  command: '#0087d7',
+  command: '#007ac3',
   brand: '#3b5bdb',
-  footer: '#1c7ed6',
-  toolBash: '#d9480f',
+  footer: '#1b79cd',
+  toolBash: '#d2460f',
   toolEdit: '#1971c2',
-  toolWrite: '#099268',
-  toolRead: '#0c8599',
+  toolWrite: '#08865f',
+  toolRead: '#0c8194',
   toolSearch: '#c2255c',
   toolWeb: '#5f3dc4',
+  band: '#eef0f6',
+  plate: '#ececec',
+  select: '#dfe5f7',
+  hit: '#cdeeee',
+  added: '#dcf5e3',
+  addedStrong: '#aee6bd',
+  removed: '#fbe2e4',
+  removedStrong: '#f3b6bc',
 }
 
 const mono: Palette = Object.fromEntries(Object.keys(dark).map(key => [key, undefined])) as Record<Tone, undefined>

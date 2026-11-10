@@ -81,7 +81,7 @@ test('clipboard errors keep the draft and never report a successful copy',async(
 })
 test('OSC52 shows Sent rather than claiming Copied',async()=>{
   const {h,controller}=setup({transcript:transcript([assistant('```sh\necho test\n```')])})
-  try{controller.copyText=async()=>({confirmed:false,transport:'OSC 52'});await click(h,'copy-code');assert.match(h.text(),/─ Sent ─╮/);assert.doesNotMatch(h.text(),/Copied/)}finally{h.dispose()}
+  try{controller.copyText=async()=>({confirmed:false,transport:'OSC 52'});await click(h,'copy-code');assert.match(h.text(),/─ Sent *$/m);assert.doesNotMatch(h.text(),/Copied/)}finally{h.dispose()}
 })
 test('right clicks, release events, drag/modifier reports and mouse-off never activate Copy',async()=>{
   const {h,store,calls}=setup({transcript:transcript([assistant('```sh\nx\n```')])})
@@ -91,9 +91,9 @@ test('tool click expands its output inline, never in a side pane, and retains th
   const output=Array.from({length:70},(_,i)=>'DETAIL-'+i).join('\n')
   const {h,calls}=setup({transcript:transcript([tool({result:{card:'terminal',output,exitCode:0}})])})
   try{await h.paste('unsent draft');assert.doesNotMatch(h.text(),/DETAIL-40/)
-    // A side pane would join columns with ` │ `; the inline card's border follows only the margin.
+    // A side pane would join columns with ` │ `; the inline card's rail follows only the margin.
     await click(h,'inspect-item');assert.doesNotMatch(h.text(),/\S │ DETAIL/)
-    await h.key('',{pageUp:true});await h.key('',{pageUp:true});assert.match(h.text(),/DETAIL-1\d\s+│/)
+    await h.key('',{pageUp:true});await h.key('',{pageUp:true});assert.match(h.text(),/^ {2}┃ DETAIL-1\d *$/m)
     await h.paste(' retained');assert.match(h.text(),/unsent draft retained/)
     // With a draft, plain End edits it; Ctrl+End returns to the latest output.
     await h.key('',{end:true,ctrl:true});assert.match(h.text(),/DETAIL-69/)
@@ -112,7 +112,7 @@ test('plan review choices are mouse-selectable and preserve the shared question 
 }))
 test('clicking a slash suggestion only completes; attachments remove one at a time',async()=>{
   const {h,store,calls}=setup({attachments:[{name:'one.png',part:{type:'image'}},{name:'two.png',part:{type:'image'}}]})
-  try{await click(h,'detach',a=>a.index===1);assert.equal(store.getState().attachments.length,1);await h.paste('/cop');await click(h,'command-complete',a=>a.name==='copy');assert.match(h.text(),/› \/copy/);assert.deepEqual(calls.commands,[])}finally{h.dispose()}
+  try{assert.match(h.text(),/^── ⊕ one\.png × ── ⊕ two\.png × ─+$/mu);await click(h,'detach',a=>a.index===1);assert.equal(store.getState().attachments.length,1);assert.match(h.text(),/^── ⊕ one\.png × ─+$/mu);await h.paste('/cop');await click(h,'command-complete',a=>a.name==='copy');assert.match(h.text(),/› \/copy/);assert.deepEqual(calls.commands,[])}finally{h.dispose()}
 })
 test('Alt+V stages an image explicitly and is disabled inside permission dialogs',async()=>{
   const {h,store,calls}=setup()
@@ -164,7 +164,7 @@ test('return-to-live button rejoins the stream without sending anything',async()
 })
 test('wheel over slash palette selects a command instead of moving the chat',async()=>{
   const {h,calls}=setup()
-  try{await h.paste('/');const p=target(h,'command-complete');await h.key(`\x1b[<65;${p.x+1};${p.y+1}M`);assert.match(h.text(),/2\//);assert.deepEqual(calls.commands,[])}finally{h.dispose()}
+  try{await h.paste('/');const p=target(h,'command-complete');await h.key(`\x1b[<65;${p.x+1};${p.y+1}M`);assert.match(h.text(),/2 of \d+/);assert.deepEqual(calls.commands,[])}finally{h.dispose()}
 })
 function locate(h,needle){
   for(const [y,row] of h.rows().entries()){
@@ -223,9 +223,9 @@ test('typing replaces a dragged draft selection and the wheel over the draft scr
     await press(h,word.x,word.y);await move(h,word.x+9,word.y)
     assert.ok(h.rows()[word.y].spans.some(part=>part.inverse===true))
     await h.key('x')
-    // The dragged span of the draft is replaced; only the cursor cell stays inverse.
+    // The dragged span of the draft is replaced; under the header's filled DSH label only the cursor cell stays inverse.
     assert.match(h.text(),/› xK a/)
-    assert.equal(h.rows().flatMap(row=>row.spans).filter(part=>part.inverse===true).map(part=>part.text).join(''),'K')
+    assert.equal(h.rows().slice(1).flatMap(row=>row.spans).filter(part=>part.inverse===true).map(part=>part.text).join(''),'K')
   }finally{h.dispose()}
 })
 const bigPaste=(rows,tag='LINE')=>Array.from({length:rows},(_,i)=>`${tag}-${i}`).join('\n')

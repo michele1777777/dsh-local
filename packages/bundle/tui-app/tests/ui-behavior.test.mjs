@@ -72,10 +72,12 @@ test('a single-select option chosen after typing custom text drops the text',asy
 }))
 test('transcript focus expands tools and preserves an unsent composer draft',async()=>{
   const t=fixture().transcript;t.items=[tool({result:{card:'terminal',output:Array.from({length:25},(_,i)=>`UNIQUE-${i}`).join('\n'),exitCode:0}})]
-  const {h,store,calls}=setup({transcript:t});try{await h.paste('draft');await h.key('o',{ctrl:true});assert.equal(store.getState().panel,'transcript');await h.key('',{home:true,ctrl:true});assert.match(h.text(),/Command/);await h.key('',{downArrow:true,shift:true});await h.key('',{downArrow:true,shift:true});assert.match(h.text(),/UNIQUE-0/);await h.key('',{return:true});assert.equal(calls.submit.length,0);await h.key('',{escape:true});assert.match(h.text(),/draft/)}finally{h.dispose()}
+  const {h,store,calls}=setup({transcript:t});try{await h.paste('draft');await h.key('o',{ctrl:true});assert.equal(store.getState().panel,'transcript');await h.key('',{home:true,ctrl:true});assert.match(h.text(),/▾ ✓ Run {4}pnpm test --filter auth/);await h.key('',{downArrow:true,shift:true});await h.key('',{downArrow:true,shift:true});assert.match(h.text(),/UNIQUE-0/);await h.key('',{return:true});assert.equal(calls.submit.length,0);await h.key('',{escape:true});assert.match(h.text(),/draft/)}finally{h.dispose()}
 })
 test('search reaches reasoning and unfolded tool output',async()=>{
-  const t=fixture().transcript;t.items=conversation();const {h}=setup({transcript:t});try{await h.key('f',{ctrl:true});await h.paste('expiresAt');await h.key('',{return:true});assert.match(h.text(),/expiresAt/);assert.match(h.text(),/Find:/);await h.key('n')}finally{h.dispose()}
+  const t=fixture().transcript;t.items=conversation();const {h}=setup({transcript:t});try{await h.key('f',{ctrl:true});await h.paste('expiresAt');await h.key('',{return:true});assert.match(h.text(),/expiresAt/);assert.match(h.text(),/^⌕ expiresAt +1 of 1 {3}n · N next · previous · Esc close $/mu);
+    // Only the matched text is marked: filled in the accent tone on the row the search is on.
+    const hit=h.rows().flatMap(value=>value.spans).filter(part=>part.text==='expiresAt'&&part.inverse===true&&part.tone==='accent');assert.equal(hit.length,1);await h.key('n')}finally{h.dispose()}
 })
 test('history selection edits, never sends, and stash swaps drafts',async()=>{
   const {h,calls}=setup();try{await h.paste('one');await h.key('',{return:true});await h.paste('two');await h.key('',{return:true});await h.key('r',{ctrl:true});await h.paste('one');await h.key('',{return:true});assert.equal(calls.submit.length,2);assert.match(h.text(),/one/);await h.key('s',{ctrl:true});assert.match(h.text(),/stashed/);await h.paste('new draft');await h.key('s',{ctrl:true});assert.match(h.text(),/one/)}finally{h.dispose()}

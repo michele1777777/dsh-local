@@ -46,13 +46,13 @@ test('at idle Tab never sends and Enter starts a turn', async () => {
 test('an empty Enter sends parked queue rows; without a queue it does nothing', async () => {
   const parked = setup({ queue: [queued('left after Ctrl+C')] })
   try {
-    assert.match(parked.h.text(), /↳ queued for the next turn: left after Ctrl\+C   ×/)
+    assert.match(parked.h.text(), /^ {2}1 next turn {2}left after Ctrl\+C +×$/mu)
     await parked.h.key('', { return: true })
     assert.equal(parked.calls.sendQueue, 1)
     assert.deepEqual(parked.calls.submit, [])
   } finally { parked.h.dispose() }
   const running = setup({ status: 'running', queue: [queued('next', 'steering')] })
-  try { assert.match(running.h.text(), /↳ steering this turn: next   ×/) } finally { running.h.dispose() }
+  try { assert.match(running.h.text(), /^ {2}1 this turn {2}next +×$/mu) } finally { running.h.dispose() }
   const empty = setup()
   try { await empty.h.key('', { return: true }); assert.equal(empty.calls.sendQueue, 0); assert.deepEqual(empty.calls.submit, []) } finally { empty.h.dispose() }
 })
@@ -111,7 +111,7 @@ test('clicking the sticky header jumps to its prompt; repeated clicks walk back'
     // PROMPT-3 now opens the viewport, right under a header naming PROMPT-2.
     y = headerLine(h)
     assert.match(textOfRow(h.rows()[y]), /PROMPT-2 please.*prompt 2\/3/)
-    assert.match(textOfRow(h.rows()[y + 1]), /^› PROMPT-3 please/)
+    assert.match(textOfRow(h.rows()[y + 1]), /^▌ PROMPT-3 please/)
     await click(h, y)
     assert.match(textOfRow(h.rows()[headerLine(h)]), /PROMPT-1 please/)
     await click(h, headerLine(h))
