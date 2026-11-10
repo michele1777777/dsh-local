@@ -37,11 +37,11 @@ test('the status-line job count opens jobs, row click follows output, and Escape
   } finally { h.dispose() }
 })
 
-test('the status line counts only live jobs; settled records stay reachable', () => {
+test('the status line counts only live jobs and leaves out settled ones', () => {
   const settled = { id: 'job-2', kind: 'bash', label: 'finished-build', status: 'completed', startedAt: 1, finishedAt: 2, output: { total: 0, earliest: 0 } }
   const h = createHarness(App, createStore(fixture({ jobs: [settled] })), { commands: () => [], hint() {}, report(error) { throw error } }, 100, 30)
   try {
-    assert.match(h.text(), /1 finished job/)
+    assert.doesNotMatch(h.text(), /finished job/)
     assert.doesNotMatch(h.text(), /\d jobs? /)
   } finally { h.dispose() }
 })

@@ -167,12 +167,9 @@ export function statusRow(state: ChatState, width: number, tick: number, now: nu
     // Full access is the one preset that keeps a warning colour.
     entries.push({ side: 'left', keep: 95, spans: [{ ...span(permission, permission === 'danger-full-access' ? 'warning' : 'muted'), action: { kind: 'open-permissions' } }] })
   }
-  if (state.jobs.length > 0) {
-    // The count names live work only; settled records stay listed in the panel until their owner closes.
-    const live = state.jobs.filter(job => job.status === 'running' || job.status === 'stopping').length
-    const text = live > 0 ? `${live} job${live === 1 ? '' : 's'}` : `${state.jobs.length} finished job${state.jobs.length === 1 ? '' : 's'}`
-    entries.push({ side: 'left', keep: 30, spans: [{ ...span(text, 'muted'), action: { kind: 'open-jobs' } }] })
-  }
+  // Only running jobs are counted; settled records stay listed in the jobs and tasks panels.
+  const live = state.jobs.filter(liveJob).length
+  if (live > 0) entries.push({ side: 'left', keep: 30, spans: [{ ...span(`${live} job${live === 1 ? '' : 's'}`, 'muted'), action: { kind: 'open-jobs' } }] })
   const elapsed = workElapsed(state, now)
   if (elapsed !== undefined) entries.push({ side: 'left', keep: 40, spans: [span(duration(elapsed), 'muted')] })
   const pressure = contextReading(state.projections)
@@ -614,9 +611,53 @@ function shown(value: unknown, absent = '—'): string {
 }
 function keyValue(key: string, value: unknown, width: number): Row[] { return wrapRow(row(span(`${key}  `, 'muted'), shown(value)), width) }
 
-function jobRows(state: ChatState, width: number): Row[] {
+type Job = ChatState['jobs'][number]
+const liveJob = (job: Job): boolean => job.status === 'running' || job.status === 'stopping'
+const JOB_GLYPHS = {
+  running: span('◌', 'accent'), stopping: span('◌', 'warning'), completed: span('✓', 'success'), failed: span('×', 'error'), killed: span('–', 'warning'),
+} satisfies Record<Job['status'], Span>
+
+/** The description the model gave the tool call that started each job, keyed by job id; jobs without one are absent. */
+function jobDescriptions(state: ChatState): Map<Job['id'], string> {
+  const found = new Map<Job['id'], string>()
+  if (state.jobs.length === 0) return found
+  for (const item of state.transcript.items) {
+    if (item.kind !== 'tool') continue
+    const description = record(item.args).description
+    if (typeof description !== 'string' || description.trim() === '') continue
+    const result = `${item.resultText ?? ''}\n${jsonText(item.result) ?? ''}`
+    for (const job of state.jobs) if (result.includes(job.id)) found.set(job.id, description.trim())
+  }
+  return found
+}
+
+/** Live jobs first, oldest first; then settled jobs, most recently finished first. */
+function orderedJobs(jobs: readonly Job[]): Job[] {
+  return [...jobs].sort((left, right) => {
+    if (liveJob(left) !== liveJob(right)) return liveJob(left) ? -1 : 1
+    if (liveJob(left)) return left.startedAt - right.startedAt
+    return (right.finishedAt ?? right.startedAt) - (left.finishedAt ?? left.startedAt) || left.startedAt - right.startedAt
+  })
+}
+
+/**
+ * Two rows per job: the status glyph and what the job does (the starting call's description, else its command) with the
+ * duration on the right, then the command and the progress or end reason, muted. Every cell opens the job's output.
+ */
+function jobRows(state: ChatState, width: number, now: number): Row[] {
   if (state.jobs.length === 0) return [row(span('No background jobs.', 'muted'))]
-  return state.jobs.flatMap(job => wrapRow(row({ ...span(safeText(`[${job.status}] ${job.label}\n${job.id}${job.detail === undefined ? '' : `\n${job.detail}`}`), 'accent'), action: { kind: 'inspect-job', jobId: job.id } }), width))
+  const descriptions = jobDescriptions(state)
+  return orderedJobs(state.jobs).flatMap((job) => {
+    const live = liveJob(job)
+    const description = descriptions.get(job.id)
+    const label = safeText(job.label).replace(/\s+/gu, ' ')
+    const title = row(JOB_GLYPHS[job.status], span(' '), span(description ?? label, live ? 'text' : 'muted', live))
+    const time = span(duration((live ? now : job.finishedAt ?? job.startedAt) - job.startedAt), 'muted')
+    const note = safeText(job.progress ?? job.detail ?? (live ? '' : job.status)).replace(/\s+/gu, ' ')
+    const second = [description === undefined ? '' : label, note].filter(part => part !== '').join(' · ')
+    const rows = [fitRow(twoSides(title, row(time), width), width), ...second === '' ? [] : [fitRow(row(span(`  ${second}`, 'muted')), width)]]
+    return rows.map(value => ({ ...value, spans: value.spans.map(part => ({ ...part, action: { kind: 'inspect-job' as const, jobId: job.id } })) }))
+  })
 }
 
 /**
@@ -625,9 +666,10 @@ function jobRows(state: ChatState, width: number): Row[] {
  * @param panel - the panel to render.
  * @param commands - the commands listed by help.
  * @param width - cells available.
+ * @param now - current time in milliseconds, for the running time of live jobs.
  * @returns the wrapped panel rows.
  */
-export function inspectorRows(state: ChatState, panel: ChatState['panel'], commands: readonly CommandEntry[], width: number): Row[] {
+export function inspectorRows(state: ChatState, panel: ChatState['panel'], commands: readonly CommandEntry[], width: number, now = Date.now()): Row[] {
   const output: Row[] = []
   if (panel === 'help') {
     output.push(row(span('Keyboard', 'accent', true)), ...markdownRows([
@@ -679,9 +721,11 @@ export function inspectorRows(state: ChatState, panel: ChatState['panel'], comma
   } else if (panel === 'jobs') {
     output.push(row({ ...span('[ All jobs ]', 'accent', true), action: { kind: 'open-jobs' } }), row(''))
     const job = state.jobs.find(item => item.id === state.selectedJob)
-    if (state.selectedJob === undefined) output.push(...jobRows(state, width))
+    if (state.selectedJob === undefined) output.push(...jobRows(state, width, now))
     else if (job === undefined) output.push(row(span('This job is no longer available.', 'muted')))
     else {
+      const description = jobDescriptions(state).get(job.id)
+      if (description !== undefined) output.push(...keyValue('Description', safeText(description), width))
       output.push(...keyValue('Command', safeText(job.label), width), ...keyValue('Job', job.id, width), ...keyValue('Status', job.status, width))
       if (job.progress ?? job.detail) output.push(...keyValue('Detail', safeText(job.progress ?? job.detail ?? ''), width))
       const view = state.jobDetail?.jobId === job.id ? state.jobDetail : undefined
@@ -700,7 +744,7 @@ export function inspectorRows(state: ChatState, panel: ChatState['panel'], comma
     if (todos.length === 0) output.push(row(span('No current task checklist.', 'muted')))
     for (const task of todos) output.push(...wrapRow(row(span(`${task.status === 'completed' ? '✓' : task.status === 'in_progress' ? '◌' : '○'} [${shown(task.status, 'unknown')}] `, task.status === 'completed' ? 'success' : task.status === 'in_progress' ? 'accent' : 'muted'), shown(task.content, '')), width))
     output.push(row(''), row(span('Background jobs', 'accent', true)))
-    output.push(...jobRows(state, width))
+    output.push(...jobRows(state, width, now))
     output.push(row(''), row(span('Queued messages', 'accent', true)))
     if (state.queue.length === 0) output.push(row(span('No queued messages.', 'muted')))
     state.queue.forEach((item, index) => output.push(...wrapRow(row(`${index + 1}. [${item.placement}] ${contentSummary(item.message.content)}`), width)))
