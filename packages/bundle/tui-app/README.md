@@ -225,12 +225,12 @@ Enter during a registered shell command keeps the command attached; the agent re
 
 ### Context, activity and performance
 
-The status line is one row; as the terminal narrows, its separators tighten and then the `? keys` control, the model, jobs and the work timer leave before the context bar, token counts and percentage, and the non-default permission preset leaves last. Detailed values remain in `/context`. While a turn runs, it shows a work timer: wall time from the latest admitted human message, including model calls, tools, pruning and approval waits.
+The status line is one row; as the terminal narrows, its separators tighten and then the `? keys` control, the model, the prefill and decode speeds, jobs and the work timer leave before the context bar, token counts and percentage, and the non-default permission preset leaves last. Detailed values remain in `/context`. While a turn runs, it shows a work timer: wall time from the latest admitted human message, including model calls, tools, pruning and approval waits.
 
 - Context pressure is an **approximate** projected token count/window ratio, labelled `~` in `/context`, from shared projections; it is not a newly calculated request size.
 - Token usage uses the shared provider counters. Output already includes reasoning tokens; cache counters are not counted twice.
-- Decode speed is the **session average** `1000 × decodeTokens / decodeMs` over steps carrying usable core timing and usage. It is not an instantaneous streaming speed. TTFT is the session average `ttftMs / ttftSteps`. Both appear in `/context`, not in the status line.
-- Missing or invalid denominators produce no displayed rate. **Prefill speed is not displayed** because the core does not expose an isolated prefill timer; prompt tokens divided by TTFT would be misleading.
+- The status line shows `prefill N · decode N tok/s` over the **latest 10 model responses**, replayed history included: summed tokens over summed wall time, so long responses weigh more than short ones. Each response is timed from its log events. Prefill is the uncached input tokens over the time from `step/start` to the first streamed token; decode is the output tokens, reasoning included, over the time from the first token to the committed message. `/context` shows the same two figures, then the session averages below.
+- Session decode speed is `1000 × decodeTokens / decodeMs` over every step carrying usable core timing and usage, and TTFT is `ttftMs / ttftSteps`; both appear in `/context` only. Missing or invalid denominators produce no displayed rate, and a response whose prompt was fully cached adds no prefill figure.
 
 The bundle mounts the same read-only `session-stats` plugin as Web so those measurements can reach the control feed. The goal, plan and task indicators under the header and the job count read existing projections. A persisted but disarmed goal is shown as `paused · /goal resume`, not running. The interface never starts goal rounds to drive a badge.
 
@@ -405,7 +405,7 @@ These limits describe what the terminal does not provide and where its behaviour
 - **Emulator-dependent signals** — OSC 8 links, OSC 52 clipboard writes, focus reports, desktop notifications and modified Enter keys depend on emulator settings; clipboard and image adapters require their OS helpers.
 - **No native end-to-end validation** — Windows and macOS adapter argv and UI interactions are covered by isolated tests, not by end-to-end runs on those systems.
 - **Outbound equality is not byte-tested** — equality of real outbound LLM traffic with Web must be checked against the same provider and session configuration; shared source alone is not a byte-for-byte end-to-end test.
-- **No prefill speed** — `/context` shows decode speed and TTFT only, because the core exposes no isolated prefill timer.
+- **Prefill speed is an estimate** — the core exposes no isolated prefill timer, so the time to the first token also counts request preparation, queueing, transport and any pruning before the request; the figure reads low after a Laya pass or a slow request start, and is closest to the server's own prefill rate on a local server.
 - **Fixed animation sizes** — the four animations in `assets/anim/` are rendered outside this package at fixed sizes; the welcome whale needs 64 columns and 22 rows of conversation area and the Thinking scene a 26-row terminal, and neither is scaled for smaller terminals; new artwork or tones require new files.
 
 <a id="dev-note"></a>
