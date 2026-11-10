@@ -31,8 +31,17 @@ export interface Scene {
 export const WELCOME_SCENE: Scene = { file: 'welcome-whale.json.gz', columns: 60, rows: 15 }
 /** The frame shown with motion off: the whale fully formed, eye open, without the reflection or the spout. */
 export const WELCOME_STILL_FRAME = 44
-/** The Thinking mark: pulses cascading through twelve nodes on three rows in a 6.4-second loop. */
-export const THINKING_SCENE: Scene = { file: 'thinking-synapse.json.gz', columns: 12, rows: 3 }
+/**
+ * The Thinking scene: twenty-four constellations drawn star by star in a dotted sky, {@link CONSTELLATION_MS} each, every
+ * finished figure named by its caption.
+ */
+export const THINKING_SCENE: Scene = { file: 'thinking-constellations.json.gz', columns: 48, rows: 12 }
+/** Length of one constellation in {@link THINKING_SCENE}; a figure starts at every multiple of it. */
+export const CONSTELLATION_MS = 6400
+/** Time into a constellation where the figure is complete and named; the still shown with motion off. */
+export const CONSTELLATION_STILL_MS = 5000
+/** The small Thinking mark for short terminals: pulses cascading through twelve nodes on three rows in a 6.4-second loop. */
+export const THINKING_MARK: Scene = { file: 'thinking-synapse.json.gz', columns: 12, rows: 3 }
 /** The Laya pruning mark: grains read by a scanner on a dotted barrier, kept or crumbled, in a 4.8-second loop. */
 export const PRUNING_SCENE: Scene = { file: 'pruning-sieve.json.gz', columns: 10, rows: 3 }
 
@@ -46,6 +55,10 @@ export interface SceneAnimation {
   readonly durationMs: number
   /** Every frame in playback order; rows and spans are shared and must not be mutated. */
   readonly frames: readonly (readonly Row[])[]
+  /** Text shown beside each frame, empty for none; absent when the file has no captions. */
+  readonly captions?: readonly string[]
+  /** Cells of the widest caption; zero without captions. */
+  readonly captionColumns: number
 }
 
 /** An unusable animation asset: unreadable, not gzip JSON, or not the declared animation. */
@@ -63,6 +76,8 @@ export class SceneAssetError extends Error {
 
 /** One cell per code point: spaces and braille patterns. */
 const SCENE_GLYPHS = /^[ ⠀-⣿]+$/u
+/** Captions are short printable text: letters, digits, spaces and punctuation, without control, combining or wide characters. */
+const CAPTION_TEXT = /^[\p{L}\p{N}\p{P} ]{0,40}$/u
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const isTone = (value: unknown): value is Tone => typeof value === 'string' && Object.hasOwn(palette('dark'), value)
@@ -75,12 +90,12 @@ const isCount = (value: unknown): value is number => typeof value === 'number' &
  * @returns the animation.
  * @throws SceneAssetError when a field is missing or malformed, the dimensions differ from `scene`, the frame count is not
  *   `fps × durationMs / 1000`, a tone is not a theme tone, a glyph is outside the scene repertoire, or a row is not exactly
- *   `columns` cells wide.
+ *   `columns` cells wide, or `captions` is present but is not one short printable string per frame.
  */
 export function parseSceneAnimation(value: unknown, scene: Scene): SceneAnimation {
   const fail = (problem: string): never => { throw new SceneAssetError(scene.file, problem) }
   if (!isRecord(value)) return fail('the file is not a JSON object')
-  const { columns, rows, fps, durationMs, frames } = value
+  const { columns, rows, fps, durationMs, frames, captions } = value
   if (columns !== scene.columns || rows !== scene.rows) {
     return fail(`it declares ${String(columns)}×${String(rows)} cells instead of ${String(scene.columns)}×${String(scene.rows)}`)
   }
@@ -102,7 +117,12 @@ export function parseSceneAnimation(value: unknown, scene: Scene): SceneAnimatio
       return { spans }
     })
   })
-  return { scene, fps, durationMs, frames: parsed }
+  if (captions === undefined) return { scene, fps, durationMs, frames: parsed, captionColumns: 0 }
+  if (!Array.isArray(captions) || captions.length !== parsed.length) return fail('captions must hold one entry per frame')
+  const text = captions.map((caption: unknown, index): string => typeof caption === 'string' && CAPTION_TEXT.test(caption)
+    ? caption : fail(`caption ${String(index)} is not short printable text`))
+  // CAPTION_TEXT admits only single-cell characters, so the UTF-16 length counts cells.
+  return { scene, fps, durationMs, frames: parsed, captions: text, captionColumns: Math.max(0, ...text.map(caption => caption.length)) }
 }
 
 /**
@@ -152,6 +172,17 @@ export class SceneAnimations {
   frame(scene: Scene, elapsedMs: number): readonly Row[] | undefined {
     const animation = this.animation(scene)
     return animation === undefined ? undefined : animation.frames[frameIndex(animation, elapsedMs)]
+  }
+
+  /**
+   * The caption of the frame of `scene` shown after `elapsedMs` of looping playback.
+   * @param scene - the scene to show.
+   * @param elapsedMs - animation time; zero is the first frame.
+   * @returns the caption, empty when the frame has none, or undefined when the scene has no captions or its asset is unusable.
+   */
+  caption(scene: Scene, elapsedMs: number): string | undefined {
+    const animation = this.animation(scene)
+    return animation?.captions?.[frameIndex(animation, elapsedMs)]
   }
 
   /**

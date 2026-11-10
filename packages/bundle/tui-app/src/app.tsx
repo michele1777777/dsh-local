@@ -379,6 +379,8 @@ export function App({ store, controller, terminal, animations }: {
       changesOnly: state.panel === 'changes',
       tick: state.motion === false ? 0 : tick,
       now,
+      motion: state.motion !== false,
+      terminalRows: height,
       animations,
     })
     // A running Laya pass follows the conversation in its live row; its result row replaces it when the pass ends.
@@ -394,7 +396,7 @@ export function App({ store, controller, terminal, animations }: {
       const label = part.text.startsWith('[') ? (copiedKey.confirmed ? '[Copied]' : '[ Sent ]') : (copiedKey.confirmed ? 'Copied' : 'Sent')
       return relabel(r, at, label, { tone: 'success', bold: true })
     })
-  }, [renderer, visibleItems, layoutWidth, expandAll, state.panel, overrides, rawTools, tick,
+  }, [renderer, visibleItems, layoutWidth, height, expandAll, state.panel, overrides, rawTools, tick,
     state.motion, state.cwd, state.links, copiedKey, now, animations, state.transcript.layaPruning, state.transcript.layaPhase,
     layaElapsedMs])
 

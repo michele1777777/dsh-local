@@ -14,7 +14,7 @@ import { displayTree, jsonText, safeText } from './terminal.ts'
 import { toolBadge } from './tool-format.ts'
 import type { UiAction } from './actions.ts'
 import type { Tone } from './theme.ts'
-import { ANIMATION_TICK_MS, PRUNING_SCENE, THINKING_SCENE, type SceneAnimations } from './animation.ts'
+import { ANIMATION_TICK_MS, CONSTELLATION_MS, CONSTELLATION_STILL_MS, PRUNING_SCENE, THINKING_MARK, THINKING_SCENE, type SceneAnimations } from './animation.ts'
 
 /** Layout inputs for the conversation document; `overrides` maps item ids (and `reasoning:<id>`) to per-item expansion. */
 export interface DocumentOptions {
@@ -27,6 +27,10 @@ export interface DocumentOptions {
   now?: number
   /** Only the latest reasoning segment carries the Thinking mark. */
   thinkingDecoration?: boolean
+  /** False holds every animation on a still frame. */
+  motion?: boolean
+  /** Terminal height; the Thinking scene needs {@link THINKING_SCENE_MIN_TERMINAL_ROWS}, and shorter terminals get the small mark. */
+  terminalRows?: number
   /** Source of the Thinking mark beside live reasoning and the Waiting for model label; without it neither shows a mark. */
   animations?: SceneAnimations
   /**
@@ -53,6 +57,46 @@ function besideLabel(label: Row, frame: readonly Row[] | undefined, width: numbe
   return frame.map((part, index) => row(
     ...index === middle ? [...label.spans, span(' '.repeat(GAP))] : [span(' '.repeat(offset))], ...part.spans,
   ))
+}
+
+/** Terminal rows the Thinking scene needs: the label, the scene and its caption, and the header, composer and status line. */
+const THINKING_SCENE_MIN_TERMINAL_ROWS = THINKING_SCENE.rows + 14
+
+/** The constellation a live item opens on: a hash of its id, so consecutive thoughts start on different figures. */
+function firstFigure(id: string, figures: number): number {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < id.length; index++) hash = Math.imul(hash ^ id.charCodeAt(index), 0x01000193)
+  return (hash >>> 0) % figures
+}
+
+/**
+ * Live Thinking or Waiting rows: the label, then the constellation scene under it, indented {@link GAP} cells, with the
+ * figure's name beside the scene's last row (or on a row of its own when that does not fit). A terminal shorter than
+ * {@link THINKING_SCENE_MIN_TERMINAL_ROWS} or narrower than the scene gets the small mark beside the label instead; the open
+ * reasoning, a superseded segment and a missing asset get the label alone.
+ * @param label - the label row.
+ * @param id - the item id, which picks the first constellation.
+ * @param elapsedMs - time since the item started thinking.
+ * @param content - cells inside the item margin.
+ * @param options - the document options; `motion` false shows a still.
+ * @param decorated - whether this label carries the decoration at all.
+ * @returns the rows, before the margin.
+ */
+function thinkingRows(label: Row, id: string, elapsedMs: number, content: number, options: DocumentOptions, decorated: boolean): Row[] {
+  const animations = options.animations
+  if (!decorated || options.thinkingDecoration === false || animations === undefined) return wrapRow(label, content)
+  const sky = animations.animation(THINKING_SCENE)
+  if (sky !== undefined && (options.terminalRows ?? 0) >= THINKING_SCENE_MIN_TERMINAL_ROWS && content >= GAP + THINKING_SCENE.columns) {
+    const figures = Math.max(1, Math.floor(sky.durationMs / CONSTELLATION_MS))
+    const at = firstFigure(id, figures) * CONSTELLATION_MS + (options.motion === false ? CONSTELLATION_STILL_MS : elapsedMs)
+    const frame = animations.frame(THINKING_SCENE, at) ?? []
+    const caption = span(animations.caption(THINKING_SCENE, at) ?? '', 'text')
+    const indent = span(' '.repeat(GAP))
+    const beside = GAP + THINKING_SCENE.columns + GAP + sky.captionColumns <= content
+    const scene = frame.map((part, index) => row(indent, ...part.spans, ...beside && index === frame.length - 1 ? [indent, caption] : []))
+    return [...wrapRow(label, content), ...scene, ...beside || sky.captionColumns === 0 ? [] : [row(indent, caption)]]
+  }
+  return besideLabel(label, animations.frame(THINKING_MARK, options.motion === false ? 0 : elapsedMs), content)
 }
 
 /** Every cell of `value` runs `action`. */
@@ -314,10 +358,11 @@ export function itemRows(unsafe: Item, options: DocumentOptions): Row[] {
       const reasoningRows = (cells: number): Row[] => options.streaming?.prose.rows(item.id, item.reasoning, cells)
         ?? wrapProse(row(span(item.reasoning, 'reasoning')), cells)
       if (activelyThinking) {
-        // Live, the label carries the Thinking mark on its middle row and the open reasoning follows without a frame.
-        const frame = options.thinkingDecoration === false ? undefined
-          : options.animations?.frame(THINKING_SCENE, (options.tick ?? 0) * ANIMATION_TICK_MS)
-        rows.push(...indent(besideLabel(label, frame, content).map(value => clickable(value, toggleAction))))
+        // Live, the label carries the Thinking scene; opening the reasoning replaces the scene with the text.
+        const elapsed = item.reasoningStartedAt === undefined || options.now === undefined
+          ? (options.tick ?? 0) * ANIMATION_TICK_MS : Math.max(0, options.now - item.reasoningStartedAt)
+        const decorated = thinkingRows(label, item.id, elapsed, content, options, !reasoningExpanded)
+        rows.push(...indent(decorated.map(value => clickable(value, toggleAction))))
         if (reasoningExpanded) rows.push(...indent(indentRows(reasoningRows(Math.max(1, content - GAP)), ' '.repeat(GAP), content)))
       } else {
         const body = reasoningExpanded ? reasoningRows(Math.max(1, content - 4)) : []
@@ -330,9 +375,7 @@ export function itemRows(unsafe: Item, options: DocumentOptions): Row[] {
     }
     if (item.reasoning === '' && item.text === '' && !item.settled) {
       const label = row(span('Waiting for model…', 'muted'))
-      const frame = options.thinkingDecoration === false ? undefined
-        : options.animations?.frame(THINKING_SCENE, (options.tick ?? 0) * ANIMATION_TICK_MS)
-      rows.push(...indent(besideLabel(label, frame, content)))
+      rows.push(...indent(thinkingRows(label, item.id, (options.tick ?? 0) * ANIMATION_TICK_MS, content, options, true)))
     }
   } else if (item.kind === 'tool') {
     if (isOneRow(item, options)) rows.push(...indent([toolLine(item, content, options.column)]))
