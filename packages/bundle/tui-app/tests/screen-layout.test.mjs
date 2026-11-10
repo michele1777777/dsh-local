@@ -45,17 +45,17 @@ test('collapsed tool calls are single rows in three columns: command, muted desc
   assert.equal(textOfRow(rows[0]), '')
   assert.match(textOfRow(rows[1]), /^ {2}✓ Read src\/auth\.ts +1\.8s$/)
   assert.match(textOfRow(rows[2]), /^ {2}✓ Edit src\/auth\.ts +\+2 −1 +1\.8s$/)
-  assert.match(textOfRow(rows[3]), /^ {2}✓ Run pnpm test --filter auth {2}2 tests passed +1\.8s$/)
+  assert.match(textOfRow(rows[3]), /^ {2}✓ Run pnpm test --filter auth {2}Run authentication tests +1\.8s$/)
   assert.ok(rows.slice(1).every(value => widthOf(textOfRow(value)) === 100))
   // The descriptions of consecutive calls share one column, two cells after the widest command.
-  assert.equal(textOfRow(rows[2]).indexOf('+2 −1'), textOfRow(rows[3]).indexOf('2 tests passed'))
-  assert.equal(textOfRow(rows[3]).indexOf('2 tests passed'), 2 + widthOf('✓ Run pnpm test --filter auth') + 2)
+  assert.equal(textOfRow(rows[2]).indexOf('+2 −1'), textOfRow(rows[3]).indexOf('Run authentication tests'))
+  assert.equal(textOfRow(rows[3]).indexOf('Run authentication tests'), 2 + widthOf('✓ Run pnpm test --filter auth') + 2)
   assert.equal(rows.length, 4)
   assert.doesNotMatch(text(rows), /[╭╮╰╯│·|]|CMD|READ|EDIT/u)
   const run = rows[3]
   assert.equal(run.spans.find(part => part.text === '✓')?.tone, 'success')
   assert.equal(run.spans.find(part => part.text === ' Run')?.tone, 'muted')
-  assert.equal(run.spans.find(part => part.text === '2 tests passed')?.tone, 'muted')
+  assert.equal(run.spans.find(part => part.text === 'Run authentication tests')?.tone, 'muted')
   assert.equal(run.spans.find(part => part.text === '1.8s')?.tone, 'muted')
   assert.ok(run.spans.every(part => part.action?.kind === 'inspect-item' && part.action.itemId === 'tool-1'))
   // Alone, a call starts its description two cells after its own command.
@@ -66,8 +66,21 @@ test('collapsed tool calls are single rows in three columns: command, muted desc
   assert.match(text(itemRows(tool(), { width: 100, expanded: false, overrides: { 'tool-1': true } })), /╭─ ▾ ✓ CMD pnpm test --filter auth/)
 })
 
+test('the description column says what the model said a call does, while it runs, after it succeeds and beside a failure', () => {
+  const at = item => itemRows(item, { width: 100, expanded: false, overrides: {} })[1]
+  assert.match(textOfRow(at(tool({ settled: false, completedAt: undefined, result: undefined }))), /^ {2}◌ Run pnpm test --filter auth {2}Run authentication tests *$/u)
+  const failed = at(tool({ result: { card: 'terminal', output: 'FAIL auth.test.ts', exitCode: 1 } }))
+  assert.match(textOfRow(failed), /^ {2}✓ Run pnpm test --filter auth {2}Run authentication tests · exit 1 +1\.8s$/u)
+  assert.equal(failed.spans.find(part => part.text === 'Run authentication tests')?.tone, 'muted')
+  assert.equal(failed.spans.find(part => part.text === 'exit 1')?.tone, 'error')
+  assert.match(textOfRow(at(tool({ cancelled: true }))), /Run authentication tests · interrupted/u)
+  // A call view without a description falls back to the call's own description argument, on one line.
+  const generic = tool({ args: { description: 'Start the\n  dev server', command: 'pnpm dev' }, call: { card: 'generic', title: 'Run pnpm dev', kind: 'execute' } })
+  assert.match(textOfRow(at(generic)), / {2}Start the dev server +1\.8s$/u)
+})
+
 test('a narrowing tool row cuts the command first, keeps the description visible, and keeps the duration', () => {
-  const long = tool({ call: { card: 'terminal', title: 'pnpm exec oxlint packages/core/src/auth.ts --deny-warnings', description: 'Lint' },
+  const long = tool({ call: { card: 'terminal', title: 'pnpm exec oxlint packages/core/src/auth.ts --deny-warnings' },
     result: { card: 'terminal', output: 'Found 0 warnings and 0 errors in 2 files.', exitCode: 0 } })
   const at = width => textOfRow(itemRows(long, { width, expanded: false, overrides: {} })[1])
   assert.equal(at(200), `  ✓ Run pnpm exec oxlint packages/core/src/auth.ts --deny-warnings  Found 0 warnings and 0 errors in 2 files.${' '.repeat(87)}1.8s`)
@@ -385,7 +398,7 @@ test('a folded settled thought is one row in the tool columns and opens into the
   // thought row above its ● row.
   const listed = createDocumentRenderer().render([thought, tool()], { width: 100, expanded: false, overrides: {} })
   assert.deepEqual(listed.map(value => textOfRow(value).trim().split(/ {2,}/u)[0]), ['', '◦ Thought', '✓ Run pnpm test --filter auth'])
-  assert.equal(textOfRow(listed[1]).indexOf('2 lines'), textOfRow(listed[2]).indexOf('2 tests passed'))
+  assert.equal(textOfRow(listed[1]).indexOf('2 lines'), textOfRow(listed[2]).indexOf('Run authentication tests'))
   const answered = itemRows({ ...thought, text: 'Done.' }, { width: 100, expanded: false, overrides: {} })
   assert.deepEqual(answered.map(value => textOfRow(value).trimEnd()), ['', '  ◦ Thought  2 lines' + ' '.repeat(76) + '2.5s', '● Done.'])
   // Still thinking, the live label stays.
