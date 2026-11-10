@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToString } from 'ink'
 import { Screen } from '../src/components.tsx'
-import { itemRows } from '../src/document.ts'
+import { createDocumentRenderer, itemRows } from '../src/document.ts'
 import { fitScreen, approvalDetails, approvalControls, panelLayout } from '../src/screen.ts'
 import { widthOf } from '../src/rich-text.ts'
 import { safeText } from '../src/terminal.ts'
@@ -16,6 +16,28 @@ for (const width of [29,40,80,120]) test(`real Ink paints complete document rows
   assert.doesNotMatch(rendered,/\[object Object\]/)
   for(const line of rendered.split('\n'))assert.ok(widthOf(line)<=width)
 })
+
+test('real Ink paints the answer dot beside the first visible line after a thought', () => {
+  const width = 30
+  const renderer = createDocumentRenderer()
+  const options = { width, terminalRows: 30, expanded: false, overrides: {} }
+  const thought = { kind: 'assistant', id: 'answer', reasoning: 'Check the result.', settled: false }
+  const paint = (text, settled) => {
+    const rows = renderer.render([{ ...thought, text, settled }], options)
+    const frame = renderToString(createElement(Screen, { rows, width, theme: 'mono' }), { columns: width + 1 })
+    return safeText(frame).split('\n').map(line => line.trimEnd())
+  }
+
+  const prefix = '\r\n  \r\n'
+  assert.deepEqual(paint(prefix, false), ['  ✦ Thought · 1 line'])
+  assert.deepEqual(paint(`${prefix}The verification finished.`, false), [
+    '  ✦ Thought · 1 line', '', '• The verification finished.',
+  ])
+  assert.deepEqual(paint(`${prefix}The verification finished.\n\nAll checks passed without errors.`, true), [
+    '  ✦ Thought · 1 line', '', '• The verification finished.', '', '  All checks passed without', '  errors.',
+  ])
+})
+
 test('real Ink retains permission actions at the smallest supported size', () => {
   const width=28,height=8
   const frame=panelLayout('Permission',approvalDetails(approval(),width),approvalControls(width,false,1),width,height,0)
