@@ -203,10 +203,10 @@ test('user-invocable skills join the slash palette, and a command of the same na
   assert.equal(merged.find(entry => entry.name === 'plan')?.origin, 'registry')
 })
 
-const { ANIMATION_ASSETS, SceneAnimations, THINKING_SCENE, ANIMATION_TICK_MS } = await import('../src/animation.ts')
+const { ANIMATION_ASSETS, SceneAnimations, THINKING_MARK } = await import('../src/animation.ts')
 const animations = new SceneAnimations(ANIMATION_ASSETS, error => { throw error })
 const { titleSpinner, terminalTitle } = await import('../src/terminal-signals.ts')
-test('live reasoning carries the Thinking mark beside its label and settled reasoning keeps its duration', () => {
+test('without a terminal height, live reasoning carries the small Thinking mark beside its label; settled reasoning keeps its duration', () => {
   const renderer = createDocumentRenderer()
   const old = {kind:'assistant', id:'old', reasoning:'earlier', text:'', settled:true, reasoningStartedAt:1000, reasoningEndedAt:4500}
   const live = {kind:'assistant', id:'new', reasoning:'first\nsecond', text:'', settled:false, reasoningStartedAt:10000}
@@ -223,7 +223,7 @@ test('live reasoning carries the Thinking mark beside its label and settled reas
   assert.equal(own.length, 4)
   assert.doesNotMatch(text(own), /[╭╮╰╯│─⎻⎼]|Show details/u)
   assert.ok(own.slice(1).some(r=>r.spans.some(p=>p.tone==='reasoning' && /[\u2801-\u28ff]/u.test(p.text))))
-  assert.deepEqual(own.slice(1).map(r=>textOfRow(r).slice(30)), animations.frame(THINKING_SCENE, 8 * ANIMATION_TICK_MS).map(textOfRow))
+  assert.deepEqual(own.slice(1).map(r=>textOfRow(r).slice(30)), animations.frame(THINKING_MARK, 7000).map(textOfRow))
   assert.match(text(renderer.render([old,live],{...options,now:18000})), /Thinking… · 8s/)
   live.reasoningEndedAt=18500;live.settled=true
   const done=renderer.render([old,live],{...options,now:30000})

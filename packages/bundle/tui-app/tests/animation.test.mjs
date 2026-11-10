@@ -18,13 +18,14 @@ const { statusRow, welcomeRows } = await import('../src/screen.ts')
 const { textOfRow, widthOf } = await import('../src/rich-text.ts')
 const { layaPhaseLabel } = await import('../src/metrics.ts')
 const {
-  ANIMATION_ASSETS, ANIMATION_TICK_MS, PRUNING_SCENE, SceneAnimations, SceneAssetError, THINKING_SCENE, WELCOME_SCENE, WELCOME_STILL_FRAME,
+  ANIMATION_ASSETS, ANIMATION_TICK_MS, CONSTELLATION_MS, CONSTELLATION_STILL_MS, PRUNING_SCENE, SceneAnimations, SceneAssetError, THINKING_MARK, THINKING_SCENE, WELCOME_SCENE,
+  WELCOME_STILL_FRAME,
   frameIndex, parseSceneAnimation,
 } = await import('../src/animation.ts')
 const { fixture } = await import('./fixtures.mjs')
 
 const animations = new SceneAnimations(ANIMATION_ASSETS, error => { throw error })
-const SCENES = [WELCOME_SCENE, THINKING_SCENE, PRUNING_SCENE]
+const SCENES = [WELCOME_SCENE, THINKING_SCENE, THINKING_MARK, PRUNING_SCENE]
 const BRAILLE = /[⠁-⣿]/u
 const controller = { async submit() {}, async runCommand() {}, cancel() {}, exit() {}, commands: () => [], answerApproval() {}, answerQuestion() {}, hint() {}, closePicker() {}, report(error) { throw error } }
 const user = { kind: 'user', id: 'user-1', text: 'Plan the change.', settled: true, queued: false }
@@ -56,9 +57,10 @@ function shown(screen, scene) {
   return undefined
 }
 
-test('the three packaged assets load at 10 fps with their declared sizes, loops and theme tones', () => {
+test('the four packaged assets load at 10 fps with their declared sizes, loops and theme tones', () => {
   const reports = [], owner = new SceneAnimations(ANIMATION_ASSETS, error => { reports.push(error) })
   const expected = { 'welcome-whale.json.gz': [60, 15, 6400, ['brand', 'command', 'footer', 'muted', 'text']],
+    'thinking-constellations.json.gz': [48, 12, 153600, ['muted', 'reasoning', 'text']],
     'thinking-synapse.json.gz': [12, 3, 6400, ['muted', 'reasoning', 'text']],
     'pruning-sieve.json.gz': [10, 3, 4800, ['accent', 'error', 'muted', 'success', 'text']] }
   for (const scene of SCENES) {
@@ -73,17 +75,25 @@ test('the three packaged assets load at 10 fps with their declared sizes, loops 
   // The still welcome frame is the formed whale: the densest pose of the loop, not the scattered clouds of frame 0.
   const whale = owner.animation(WELCOME_SCENE), dots = frame => frame.map(textOfRow).join('').replace(/[ ⠀]/gu, '').length
   assert.ok(dots(whale.frames[WELCOME_STILL_FRAME]) > dots(whale.frames[0]) * 1.5)
+  // Twenty-four constellations; each one's still frame is the complete, named figure.
+  const sky = owner.animation(THINKING_SCENE)
+  assert.equal(sky.durationMs / CONSTELLATION_MS, 24)
+  assert.equal(sky.captions.length, sky.frames.length)
+  assert.equal(owner.caption(THINKING_SCENE, CONSTELLATION_STILL_MS), 'Orion')
+  assert.equal(owner.caption(THINKING_SCENE, 23 * CONSTELLATION_MS + CONSTELLATION_STILL_MS), 'Delphinus')
+  assert.equal(sky.captionColumns, 'Corona Borealis'.length)
+  assert.equal(owner.caption(THINKING_MARK, 0), undefined)
   assert.deepEqual(reports, [])
 })
 
 /** A fresh, valid copy of the Thinking asset as parsed JSON. */
 const validThinking = () => ({ columns: 12, rows: 3, fps: 10, durationMs: 6400,
-  frames: animations.animation(THINKING_SCENE).frames.map(frame => frame.map(line => ({ spans: line.spans.map(part => ({ ...part })) }))) })
+  frames: animations.animation(THINKING_MARK).frames.map(frame => frame.map(line => ({ spans: line.spans.map(part => ({ ...part })) }))) })
 test('a malformed asset is rejected with the file and the problem', () => {
-  assert.equal(parseSceneAnimation(validThinking(), THINKING_SCENE).frames.length, 64)
+  assert.equal(parseSceneAnimation(validThinking(), THINKING_MARK).frames.length, 64)
   const rejects = (mutate, problem) => {
     const value = validThinking(), result = mutate(value), bad = result === undefined ? value : result
-    assert.throws(() => parseSceneAnimation(bad, THINKING_SCENE), error => error instanceof SceneAssetError && error.file === 'thinking-synapse.json.gz'
+    assert.throws(() => parseSceneAnimation(bad, THINKING_MARK), error => error instanceof SceneAssetError && error.file === 'thinking-synapse.json.gz'
       && /^Animation thinking-synapse\.json\.gz is unusable: /.test(error.message) && problem.test(error.message), String(problem))
   }
   rejects(() => null, /not a JSON object/)
@@ -97,6 +107,11 @@ test('a malformed asset is rejected with the file and the problem', () => {
   rejects(value => { value.frames[5][0].spans[0].tone = 'purple' }, /frame 5 row 0 has an unknown tone "purple"/)
   rejects(value => { value.frames[5][0].spans[0].text = '\x1b[31m' }, /frame 5 row 0 has a span outside the scene glyphs/)
   rejects(value => { value.frames[5][0].spans[0].text = '█'.repeat(value.frames[5][0].spans[0].text.length) }, /outside the scene glyphs/)
+  rejects(value => { value.captions = ['Orion'] }, /captions must hold one entry per frame/)
+  rejects(value => { value.captions = value.frames.map(() => ''); value.captions[9] = 'Orion\x1b[2J' }, /caption 9 is not short printable text/)
+  rejects(value => { value.captions = value.frames.map(() => 'x'.repeat(41)) }, /caption 0 is not short printable text/)
+  const captioned = { ...validThinking(), captions: validThinking().frames.map((_, index) => index < 10 ? '' : 'Boötes') }
+  assert.equal(parseSceneAnimation(captioned, THINKING_MARK).captionColumns, 6)
 })
 
 test('an unusable asset is reported once and leaves its place empty; labels and welcome text stay', () => {
@@ -105,8 +120,8 @@ test('an unusable asset is reported once and leaves its place empty; labels and 
     writeFileSync(join(directory, 'thinking-synapse.json.gz'), 'not gzip')
     writeFileSync(join(directory, 'pruning-sieve.json.gz'), gzipSync(JSON.stringify({ columns: 10, rows: 3 })))
     const reports = [], owner = new SceneAnimations(pathToFileURL(directory + '/'), error => { reports.push(error) })
-    assert.equal(owner.frame(THINKING_SCENE, 0), undefined)
-    assert.equal(owner.frame(THINKING_SCENE, 500), undefined)
+    assert.equal(owner.frame(THINKING_MARK, 0), undefined)
+    assert.equal(owner.frame(THINKING_MARK, 500), undefined)
     assert.equal(reports.length, 1)
     assert.ok(reports[0] instanceof SceneAssetError && reports[0].file === 'thinking-synapse.json.gz' && reports[0].cause !== undefined)
     assert.match(reports[0].message, /^Animation thinking-synapse\.json\.gz is unusable: it cannot be read as gzip JSON\. The TUI shows no animation in its place; reinstall @deepseek-ai\/dsh-tui-app to restore it\.$/)
@@ -120,7 +135,7 @@ test('an unusable asset is reported once and leaves its place empty; labels and 
         assert.match(h.text(), /What are we building\?|Thinking… · 12s|laya_context_pruner · pruning context/)
       } finally { h.dispose() }
     }
-    assert.deepEqual(reports.map(error => error.file), ['thinking-synapse.json.gz', 'pruning-sieve.json.gz', 'welcome-whale.json.gz'])
+    assert.deepEqual(reports.map(error => error.file), ['thinking-synapse.json.gz', 'pruning-sieve.json.gz', 'welcome-whale.json.gz', 'thinking-constellations.json.gz'])
   } finally { rmSync(directory, { recursive: true, force: true }) }
 })
 
@@ -204,30 +219,58 @@ test('motion off holds the formed whale', async () => {
   } finally { h.dispose() }
 })
 
-test('the Thinking mark follows the live label on its middle row, two cells after it, without a box', () => {
-  const rows = itemRows(live(), { width: 100, expanded: false, overrides: {}, tick: 7, now: Date.now(), animations })
-  const frame = animations.frame(THINKING_SCENE, 7 * ANIMATION_TICK_MS).map(textOfRow)
-  assert.equal(rows.length, 4)
+/** The still frame of the constellation that frame `index` belongs to; the finished figure repeats over several frames. */
+const figureStill = index => index - index % (CONSTELLATION_MS / 100) + CONSTELLATION_STILL_MS / 100
+
+test('the Thinking scene sits under the live label, names its figure, and gives way to the open reasoning', () => {
+  const options = (overrides = {}) => ({ width: 100, expanded: false, overrides: {}, tick: 7, now: Date.now(), terminalRows: 40, animations, ...overrides })
+  const screen = rows => rows.map(textOfRow)
+  const rows = itemRows(live(), options())
   const label = '  › Thinking… · 12s · 1 line'
-  assert.deepEqual(rows.slice(1).map(textOfRow), [' '.repeat(label.length + 2) + frame[0], `${label}  ${frame[1]}`, ' '.repeat(label.length + 2) + frame[2]])
-  assert.doesNotMatch(rows.map(textOfRow).join('\n'), /[╭╮╰╯│─⎻⎼]|Show details/u)
-  // Every cell of the label and the mark opens the reasoning.
+  assert.equal(textOfRow(rows[1]), label)
+  // The scene starts under the label text, two cells in, and fills the twelve rows after it.
+  const found = shown(screen(rows), THINKING_SCENE)
+  assert.deepEqual([found?.y, found?.x, rows.length], [2, 4, 14])
+  assert.doesNotMatch(screen(rows).join('\n'), /[╭╮╰╯│─⎻⎼]|Show details/u)
+  // Every cell of the label and the scene opens the reasoning.
   assert.ok(rows.slice(1).every(line => line.spans.slice(1).every(part => part.action?.kind === 'toggle-reasoning')))
-  // Opened while thinking, the reasoning follows the label behind two cells.
-  const open = itemRows(live(), { width: 100, expanded: false, overrides: { 'reasoning:live': true }, tick: 7, now: Date.now(), animations })
-  assert.match(textOfRow(open[2]), /^ {2}▾ Thinking… · 12s · 1 line {2}/u)
-  assert.equal(textOfRow(open[4]), '    Looking at the code.')
-  // Too narrow for label and mark on one row: the label wraps alone.
-  const narrow = itemRows(live(), { width: 40, expanded: false, overrides: {}, tick: 7, now: Date.now(), animations })
-  assert.doesNotMatch(narrow.map(textOfRow).join('\n'), BRAILLE)
-  assert.match(narrow.map(textOfRow).join(''), /Thinking… · 12s/)
-  // The Waiting for model label carries the same mark.
-  const waiting = itemRows({ kind: 'assistant', id: 'wait', reasoning: '', text: '', settled: false }, { width: 100, expanded: false, overrides: {}, tick: 7, animations })
-  assert.deepEqual(waiting.slice(1).map(textOfRow), [' '.repeat(22) + frame[0], `  Waiting for model…  ${frame[1]}`, ' '.repeat(22) + frame[2]])
+  // With motion off the scene holds the complete figure, named beside its last row.
+  const still = itemRows(live(), options({ motion: false }))
+  const held = shown(screen(still), THINKING_SCENE)
+  assert.ok(same(THINKING_SCENE, held.index, figureStill(held.index)))
+  const name = animations.caption(THINKING_SCENE, figureStill(held.index) * 100)
+  assert.ok(name !== '' && textOfRow(still[13]).endsWith(`  ${name}`), textOfRow(still[13]))
+  // Different thoughts open on different constellations.
+  const names = new Set('abcdefghijklmnop'.split('').map(id => {
+    const value = itemRows({ ...live(), id }, options({ motion: false }))
+    return animations.caption(THINKING_SCENE, figureStill(shown(screen(value), THINKING_SCENE).index) * 100)
+  }))
+  assert.ok(names.size >= 6, [...names].join(', '))
+  // Without room for the name beside it, the name takes a row of its own under the scene.
+  const slim = itemRows(live(), options({ width: 60, motion: false }))
+  assert.equal(slim.length, 15)
+  assert.match(textOfRow(slim[14]), /^ {4}\S/u)
+  // Opened, the reasoning replaces the scene; hidden again, the scene returns.
+  const open = itemRows(live(), options({ overrides: { 'reasoning:live': true } }))
+  assert.deepEqual(screen(open).slice(1), ['  ▾ Thinking… · 12s · 1 line', '    Looking at the code.'])
+  assert.ok(shown(screen(itemRows(live(), options({ overrides: { 'reasoning:live': false } }))), THINKING_SCENE) !== undefined)
+  // A short terminal gets the small mark beside the label on its middle row.
+  const mark = animations.frame(THINKING_MARK, 12_000).map(textOfRow)
+  const short = itemRows(live(), options({ terminalRows: 24 }))
+  assert.deepEqual(screen(short).slice(1), [' '.repeat(label.length + 2) + mark[0], `${label}  ${mark[1]}`, ' '.repeat(label.length + 2) + mark[2]])
+  // Too narrow for the scene and for label and mark on one row: the label wraps alone.
+  const narrow = itemRows(live(), options({ width: 40 }))
+  assert.doesNotMatch(screen(narrow).join('\n'), BRAILLE)
+  assert.match(screen(narrow).join(''), /Thinking… · 12s/)
+  // The Waiting for model label carries the same scene.
+  const waiting = itemRows({ kind: 'assistant', id: 'wait', reasoning: '', text: '', settled: false }, options())
+  assert.equal(textOfRow(waiting[1]), '  Waiting for model…')
+  assert.deepEqual([shown(screen(waiting), THINKING_SCENE)?.y, shown(screen(waiting), THINKING_SCENE)?.x], [2, 4])
 })
 
-test('the Thinking mark animates with the shared tick, holds frame 0 with motion off, and leaves with the settled thought', async () => {
-  const thinking = overrides => ({ status: 'running', transcript: { ...emptyTranscript(), items: [user, live()] }, ...overrides })
+test('the Thinking scene moves with time, holds a named figure with motion off, and leaves with the settled thought', async () => {
+  const fresh = () => ({ ...live(), reasoningStartedAt: Date.now() - 1000 })
+  const thinking = overrides => ({ status: 'running', transcript: { ...emptyTranscript(), items: [user, fresh()] }, ...overrides })
   const moving = harness(100, 30, thinking({ motion: true }))
   try {
     const first = shown(lines(moving), THINKING_SCENE)
@@ -239,7 +282,8 @@ test('the Thinking mark animates with the shared tick, holds frame 0 with motion
   const still = createHarness(App, store, controller, 100, 30)
   try {
     const first = body(still)
-    assert.equal(shown(lines(still), THINKING_SCENE)?.index, 0)
+    const held = shown(lines(still), THINKING_SCENE).index
+    assert.ok(same(THINKING_SCENE, held, figureStill(held)))
     await delay(350); await still.flush()
     assert.equal(body(still), first)
     store.update((state) => { state.status = 'idle'; state.transcript = { ...state.transcript, items: [user, { ...state.transcript.items[1], reasoningEndedAt: Date.now(), settled: true }] } })
@@ -247,6 +291,12 @@ test('the Thinking mark animates with the shared tick, holds frame 0 with motion
     assert.doesNotMatch(body(still), BRAILLE)
     assert.match(still.text(), /◦ Thought {2}1 line/)
   } finally { still.dispose() }
+  // A short terminal falls back to the small mark.
+  const short = harness(100, 24, thinking({ motion: false }))
+  try {
+    assert.equal(shown(lines(short), THINKING_SCENE), undefined)
+    assert.equal(shown(lines(short), THINKING_MARK)?.index, 0)
+  } finally { short.dispose() }
 })
 
 test('a Laya pass shows its real phase label with the pruning mark after it; the status row shows the label alone', () => {
