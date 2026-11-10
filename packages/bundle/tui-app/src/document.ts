@@ -14,6 +14,7 @@ import { displayTree, jsonText, safeText } from './terminal.ts'
 import { toolBadge } from './tool-format.ts'
 import type { UiAction } from './actions.ts'
 import type { Tone } from './theme.ts'
+import { widenSky } from './sky.ts'
 import { ANIMATION_TICK_MS, CONSTELLATION_MS, CONSTELLATION_STILL_MS, PRUNING_SCENE, THINKING_MARK, THINKING_SCENE, type SceneAnimations } from './animation.ts'
 
 /** Layout inputs for the conversation document; `overrides` maps item ids (and `reasoning:<id>`) to per-item expansion. */
@@ -70,8 +71,9 @@ function firstFigure(id: string, figures: number): number {
 }
 
 /**
- * Live Thinking or Waiting rows: the label, then the constellation scene under it, indented {@link GAP} cells, with the
- * figure's name beside the scene's last row (or on a row of its own when that does not fit). A terminal shorter than
+ * Live Thinking or Waiting rows: the label, then the constellation scene under it across the whole width, the figure
+ * centred and grey background stars on both sides. The figure's name types itself out on the label's row, centred on the
+ * scene, or two cells after the label when the centre is taken. A terminal shorter than
  * {@link THINKING_SCENE_MIN_TERMINAL_ROWS} or narrower than the scene gets the small mark beside the label instead; the open
  * reasoning, a superseded segment and a missing asset get the label alone.
  * @param label - the label row.
@@ -86,15 +88,19 @@ function thinkingRows(label: Row, id: string, elapsedMs: number, content: number
   const animations = options.animations
   if (!decorated || options.thinkingDecoration === false || animations === undefined) return wrapRow(label, content)
   const sky = animations.animation(THINKING_SCENE)
-  if (sky !== undefined && (options.terminalRows ?? 0) >= THINKING_SCENE_MIN_TERMINAL_ROWS && content >= GAP + THINKING_SCENE.columns) {
+  if (sky !== undefined && (options.terminalRows ?? 0) >= THINKING_SCENE_MIN_TERMINAL_ROWS && content >= THINKING_SCENE.columns) {
     const figures = Math.max(1, Math.floor(sky.durationMs / CONSTELLATION_MS))
     const at = firstFigure(id, figures) * CONSTELLATION_MS + (options.motion === false ? CONSTELLATION_STILL_MS : elapsedMs)
-    const frame = animations.frame(THINKING_SCENE, at) ?? []
-    const caption = span(animations.caption(THINKING_SCENE, at) ?? '', 'text')
-    const indent = span(' '.repeat(GAP))
-    const beside = GAP + THINKING_SCENE.columns + GAP + sky.captionColumns <= content
-    const scene = frame.map((part, index) => row(indent, ...part.spans, ...beside && index === frame.length - 1 ? [indent, caption] : []))
-    return [...wrapRow(label, content), ...scene, ...beside || sky.captionColumns === 0 ? [] : [row(indent, caption)]]
+    const figure = Math.floor(at / CONSTELLATION_MS) % figures
+    const frame = Math.floor(at % CONSTELLATION_MS / 100)
+    const scene = widenSky(animations.frame(THINKING_SCENE, at) ?? [], figure, frame, content)
+    // The name is placed by its full length, so it grows in place while it types itself out.
+    const name = animations.caption(THINKING_SCENE, figure * CONSTELLATION_MS + CONSTELLATION_STILL_MS) ?? ''
+    const caption = animations.caption(THINKING_SCENE, at) ?? ''
+    const used = widthOf(textOfRow(label))
+    const start = Math.max(used + GAP, Math.floor((content - widthOf(name)) / 2))
+    const top = caption === '' || start + widthOf(name) > content ? label : row(...label.spans, span(' '.repeat(start - used)), span(caption, 'text'))
+    return [...wrapRow(top, content), ...scene]
   }
   return besideLabel(label, animations.frame(THINKING_MARK, options.motion === false ? 0 : elapsedMs), content)
 }
@@ -211,6 +217,10 @@ const FENCE = /^(?:`{3,}|~{3,})/u
 /** The non-blank lines of a result text, trimmed, without Markdown fence lines. */
 const resultLines = (text: string): string[] => text.split('\n').map(line => line.trim()).filter(line => line !== '' && !FENCE.test(line))
 
+/** A call that failed: the tool reported an error, or its command exited non-zero or was ended by a signal. */
+const failed = (item: ToolItem): boolean => item.isError
+  || (item.result?.card === 'terminal' && ((item.result.exitCode !== undefined && item.result.exitCode !== 0) || item.result.signal !== undefined))
+
 /** The description the model gave a call (a command's `description` argument), on one line, or undefined. */
 function callDescription(item: ToolItem): string | undefined {
   const given = item.call.card === 'terminal' ? item.call.description : undefined
@@ -266,7 +276,7 @@ function toolNote(item: ToolItem): Span | undefined {
  * renderer can measure the column before laying the item out.
  */
 function toolCommand(item: ToolItem): Span[] {
-  const glyph = item.cancelled === true ? span('–', 'warning') : item.isError ? span('×', 'error') : item.settled ? span('✓', 'success') : span('◌', 'accent')
+  const glyph = item.cancelled === true ? span('–', 'warning') : failed(item) ? span('×', 'error') : item.settled ? span('✓', 'success') : span('◌', 'accent')
   const title = safeText(item.result?.title || item.call.title || item.name)
   const command = item.call.card === 'terminal' || (item.call.card === 'generic' && item.call.kind === 'execute')
   const named = /^(\p{Lu}[\p{L}-]*)\s+(\S[\s\S]*)$/u.exec(title)
@@ -401,8 +411,8 @@ export function itemRows(unsafe: Item, options: DocumentOptions): Row[] {
   } else if (item.kind === 'tool') {
     if (isOneRow(item, options)) rows.push(...indent([toolLine(item, content, options.column)]))
     else {
-      const done = item.cancelled === true ? '–' : item.isError ? '×' : item.settled ? '✓' : '◌'
-      const statusTone = item.cancelled === true ? 'warning' : item.isError ? 'error' : item.settled ? 'success' : 'accent'
+      const done = item.cancelled === true ? '–' : failed(item) ? '×' : item.settled ? '✓' : '◌'
+      const statusTone = item.cancelled === true ? 'warning' : failed(item) ? 'error' : item.settled ? 'success' : 'accent'
       const badge = toolBadge(item.name, item.call, item.result)
       const timing = item.startedAt === undefined || item.completedAt === undefined ? '' : ` · ${duration(item.completedAt - item.startedAt)}`
       const title = item.result?.title || item.call.title || item.name

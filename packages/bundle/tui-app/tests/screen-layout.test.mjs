@@ -70,7 +70,10 @@ test('the description column says what the model said a call does, while it runs
   const at = item => itemRows(item, { width: 100, expanded: false, overrides: {} })[1]
   assert.match(textOfRow(at(tool({ settled: false, completedAt: undefined, result: undefined }))), /^ {2}◌ Run pnpm test --filter auth {2}Run authentication tests *$/u)
   const failed = at(tool({ result: { card: 'terminal', output: 'FAIL auth.test.ts', exitCode: 1 } }))
-  assert.match(textOfRow(failed), /^ {2}✓ Run pnpm test --filter auth {2}Run authentication tests · exit 1 +1\.8s$/u)
+  assert.match(textOfRow(failed), /^ {2}× Run pnpm test --filter auth {2}Run authentication tests · exit 1 +1\.8s$/u)
+  assert.equal(failed.spans[1].tone, 'error')
+  assert.match(textOfRow(at(tool({ result: { card: 'terminal', output: '', signal: 'SIGTERM' } }))), /^ {2}× Run/u)
+  assert.match(textOfRow(at(tool({ result: { card: 'terminal', output: 'ok', exitCode: 0 } }))), /^ {2}✓ Run/u)
   assert.equal(failed.spans.find(part => part.text === 'Run authentication tests')?.tone, 'muted')
   assert.equal(failed.spans.find(part => part.text === 'exit 1')?.tone, 'error')
   assert.match(textOfRow(at(tool({ cancelled: true }))), /Run authentication tests · interrupted/u)
