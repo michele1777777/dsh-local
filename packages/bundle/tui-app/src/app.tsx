@@ -15,7 +15,7 @@ import type { CopyResult } from './clipboard.ts'
 import { codeBlocks } from './code-blocks.ts'
 import { isNamingCommand, PALETTE_TABS, paletteView, type CommandEntry, type PaletteTab } from './commands.ts'
 import { Screen } from './components.tsx'
-import { createDocumentRenderer, layaPassRows, searchRows } from './document.ts'
+import { compactingRows, createDocumentRenderer, layaPassRows, searchRows } from './document.ts'
 import { emptyUndo, redo, remember, undo } from './editor-history.ts'
 import { edit, editorAtEnd, emptyEditor, insertText, moveLine, selectionOf, type EditorState } from './editor.ts'
 import { moveVisual } from './layout.ts'
@@ -25,10 +25,15 @@ import { LEGACY_BYTES, MOUSE_OFF, MOUSE_ON, parseMouse, WHEEL_ROWS } from './mou
 import { hitTest } from './panes.ts'
 import { addBlock, blockWithText, expandPastes, placeholder, placeholderAt, referenced, shouldCollapse, type PastedBlock } from './paste.ts'
 import type { SubmitGesture } from './queue.ts'
-import { fitRow, relabel, row, rule, span, type Row } from './rich-text.ts'
+import { fitRow, relabel, row, rule, span, textOfRow, widthOf, type Row } from './rich-text.ts'
 import {
+  approvalArgumentsOpen,
   approvalControls,
   approvalDetails,
+  cardInner,
+  cardLayout,
+  pickerCard,
+  shortPicker,
   composerNotes,
   composerOffsetAt,
   composerRows,
@@ -37,6 +42,7 @@ import {
   goalControls,
   headerRow,
   highlightRow,
+  searchFieldRow,
   indicatorRow,
   inspectorRows,
   keysRows,
@@ -50,6 +56,7 @@ import {
   questionDetails,
   questionDraft,
   scrollToBottomBar,
+  SPINNER,
   statusRow,
   welcomeRows,
   type QuestionDraft,
@@ -70,6 +77,8 @@ import { layaCutting } from './metrics.ts'
 const RELAYOUT_DELAY_MS = 80
 /** How long an informational hint stays above the composer. */
 const HINT_TTL_MS = 5000
+/** Narrowest terminal that sets the session preview beside the session list instead of under it. */
+const SESSIONS_SIDE_MIN_WIDTH = 96
 
 /** Title of an in-page inspector panel. */
 function panelName(panel: Exclude<Panel, 'transcript' | 'changes'>): string {
@@ -189,6 +198,8 @@ export function App({ store, controller, terminal, animations }: {
   const [searchEditing, setSearchEditing] = useState(true)
 
   const [approvalAllowed, setApprovalAllowed] = useState(false)
+  // The reader's choice to open or fold an approval's complete arguments; undefined keeps the card's default.
+  const [approvalArguments, setApprovalArguments] = useState<boolean | undefined>(undefined)
   const [qDraft, setQDraft] = useState<QuestionDraft>(questionDraft)
   const promptMountedAt = useRef(Date.now())
 
@@ -206,6 +217,9 @@ export function App({ store, controller, terminal, animations }: {
   if (layaCut !== layaCutStart?.key) setLayaCutStart(layaCut === undefined ? undefined : { key: layaCut, tick })
   const layaElapsedMs = layaCut === undefined || layaCutStart === undefined || state.motion === false
     ? 0 : Math.max(0, tick - layaCutStart.tick) * ANIMATION_TICK_MS
+  // A context compaction shows its elapsed time from the moment this screen first saw it running.
+  const [compactStart, setCompactStart] = useState<number | undefined>(undefined)
+  if (state.transcript.compacting !== (compactStart !== undefined)) setCompactStart(state.transcript.compacting ? now : undefined)
   const [copiedKey, setCopiedKey] = useState<{ key: string; confirmed: boolean } | undefined>(undefined)
   const [selection, setSelection] = useState<(Selection & {
     document?: readonly Row[]
@@ -255,6 +269,7 @@ export function App({ store, controller, terminal, animations }: {
   useEffect(() => {
     promptMountedAt.current = Date.now()
     setApprovalAllowed(false)
+    setApprovalArguments(undefined)
     setQDraft(questionDraft())
     setPanelOffset(0)
   }, [activePendingId])
@@ -387,6 +402,11 @@ export function App({ store, controller, terminal, animations }: {
     if (state.transcript.layaPruning === true && state.panel !== 'changes') {
       raw.push(...layaPassRows({ phase: state.transcript.layaPhase, elapsedMs: layaElapsedMs }, { width: layoutWidth, animations }))
     }
+    if (compactStart !== undefined && state.panel !== 'changes') {
+      const size = state.transcript.usage?.input
+      raw.push(...compactingRows({ mark: state.motion === false ? '◌' : SPINNER[tick % SPINNER.length] ?? '◌', elapsedMs: Math.max(0, now - compactStart),
+        ...size === undefined ? {} : { tokens: size } }, layoutWidth))
+    }
     return linkRows(raw, state.cwd, state.links !== false).map((r) => {
       const at = copiedKey === undefined ? -1
         : r.spans.findIndex(part => part.action !== undefined && actionKey(part.action) === copiedKey.key)
@@ -398,7 +418,7 @@ export function App({ store, controller, terminal, animations }: {
     })
   }, [renderer, visibleItems, layoutWidth, height, expandAll, state.panel, overrides, rawTools, tick,
     state.motion, state.cwd, state.links, copiedKey, now, animations, state.transcript.layaPruning, state.transcript.layaPhase,
-    layaElapsedMs])
+    layaElapsedMs, compactStart, state.transcript.usage])
 
   // Keep the selected document stable while new output arrives or tools collapse.
   const docRows = selection?.document ?? liveDocRows
@@ -426,32 +446,26 @@ export function App({ store, controller, terminal, animations }: {
   const indicatorLines = indicator === undefined ? [] : [indicator]
   const userQueue = state.queue.filter(q => q.placement !== 'context')
 
-  const searchBarRows = searchMode === 'none' ? [] : [
-    fitRow(
-      row(
-        span(searchMode === 'transcript' ? 'Find: ' : 'History search: ', 'accent', true),
-        span(searchQuery.text, 'text', true),
-        span(
-          searchMode === 'transcript'
-            ? ` (${transcriptHits.length === 0 ? 0 : searchHitIndex + 1}/${transcriptHits.length}) · ${searchEditing ? 'Enter search' : 'n/N next/previous'} · Esc close`
-            : ` (${historyHits[0] ?? 'no match'}) · Enter pick · Esc close`,
-          'footer',
-        ),
-      ),
-      width,
-    ),
-  ]
+  // An open search takes the composer's line: the field between the same two rules, the draft kept behind it.
+  const searchField = searchMode === 'none' ? undefined
+    : searchMode === 'transcript'
+      ? searchFieldRow(searchQuery, searchEditing, '',
+        transcriptHits.length === 0 ? (searchQuery.text === '' ? '' : 'no match') : `${searchHitIndex + 1} of ${transcriptHits.length}`,
+        searchEditing ? [['Enter', 'search'], ['Esc', 'close']] : [['n · N', 'next · previous'], ['Esc', 'close']], width)
+      : searchFieldRow(searchQuery, true, searchQuery.text === '' ? 'prompt history' : historyHits[0]?.replace(/\s+/gu, ' ') ?? 'no match', '',
+        [['Enter', 'pick'], ['Esc', 'close']], width)
 
   const maxComposerLines = Math.max(1, Math.min(6, Math.floor(height / 4)))
   const placeholderText = state.status === 'running' ? 'Enter steers this turn · Tab queues for the next one' : 'Ask anything'
-  const compRows = composerRows(editor, width, maxComposerLines, placeholderText, false, composerScroll)
+  const compRows = searchField === undefined
+    ? composerRows(editor, width, maxComposerLines, placeholderText, false, composerScroll, state.attachments) : [rule(width), searchField]
   const bottomRule = [rule(width)]
-  // Approvals, questions, pickers and in-page panels paint over the conversation and the composer.
+  // Approvals, questions and short pickers take the composer's place; the other pickers and in-page panels also cover the conversation.
   const composerShown = state.pending.length === 0 && state.picker === undefined
     && (state.panel === undefined || state.panel === 'transcript' || state.panel === 'changes')
   const foot = [statusRow(state, width, tick, now, composerShown)]
   // The composer, its rules and the status row always fit; waiting notes, the palette and the Keys box share what is left.
-  const fixedHeight = header.length + indicatorLines.length + searchBarRows.length + compRows.length + bottomRule.length + foot.length
+  const fixedHeight = header.length + indicatorLines.length + compRows.length + bottomRule.length + foot.length
   const noteRows = composerNotes(state, width).slice(-Math.max(1, height - fixedHeight - 1))
   const paletteIndex = Math.min(commandIndex, Math.max(0, matchingCommands.length - 1))
   const paletteHeight = Math.min(PALETTE_MAX_ROWS, Math.floor(height / 2), height - fixedHeight - noteRows.length - 1)
@@ -561,6 +575,13 @@ export function App({ store, controller, terminal, animations }: {
       }
       case 'approval-select': {
         setApprovalAllowed(action.allowed)
+        return
+      }
+      case 'approval-arguments': {
+        const pending = state.pending[0]
+        if (pending?.kind !== 'approval') return
+        setApprovalArguments(open => !(open ?? approvalArgumentsOpen(pending)))
+        setPanelOffset(0)
         return
       }
       case 'approval-confirm': {
@@ -684,19 +705,36 @@ export function App({ store, controller, terminal, animations }: {
   // Assemble the painted screen rows
   const paintedFrame = useMemo((): Row[] => {
     const pending = state.pending[0]
+    // A request for a choice takes the composer's place as a card: the conversation stays above it and the status row
+    // below, so the reader still sees what the request is about.
+    const cardHeight = Math.max(3, height - header.length - indicatorLines.length - foot.length)
+    const inner = cardInner(width)
+    const overComposer = (card: readonly Row[]): Row[] => {
+      const room = Math.max(0, height - header.length - indicatorLines.length - card.length - foot.length)
+      const end = Math.min(docRows.length, currentTop + viewportHeight)
+      // One blank row stays between the conversation and the card.
+      const above = visibleItems.length === 0 ? [] : docRows.slice(Math.max(0, end - (room - 1)), end)
+      while (above.length < room) above.push(row(''))
+      return fitScreen([...header, ...indicatorLines, ...above, ...card, ...foot], width, height)
+    }
     if (pending?.kind === 'approval') {
-      const details = approvalDetails(pending, width)
-      const controls = approvalControls(width, approvalAllowed, state.pending.length)
-      const layout = panelLayout('Permission required', details, controls, width, height - foot.length, panelOffset)
+      const details = approvalDetails(pending, inner, approvalArguments)
+      const controls = approvalControls(inner, approvalAllowed, state.pending.length)
+      const layout = cardLayout('! Permission required', pending.toolName, details, controls, 'warning', width, cardHeight, panelOffset)
       panelFrame.current = { page: layout.page, maximum: layout.maximum }
-      return fitScreen([...layout.rows, ...foot], width, height)
+      return overComposer(layout.rows)
     }
     if (pending?.kind === 'question') {
-      const details = questionDetails(pending, qDraft, width)
-      const controls = questionControls(pending, qDraft, width, height - foot.length)
-      const layout = panelLayout(pending.questions[qDraft.index]?.header || 'Question', details, controls, width, height - foot.length, panelOffset)
+      const details = questionDetails(pending, qDraft, inner)
+      const controls = questionControls(pending, qDraft, inner, height - foot.length)
+      const layout = cardLayout(pending.questions[qDraft.index]?.header || 'Question',
+        pending.questions.length > 1 ? `question ${qDraft.index + 1} of ${pending.questions.length}` : '', details, controls, 'accent', width, cardHeight, panelOffset)
       panelFrame.current = { page: layout.page, maximum: layout.maximum }
-      return fitScreen([...layout.rows, ...foot], width, height)
+      return overComposer(layout.rows)
+    }
+    if (state.picker !== undefined && shortPicker(state.picker)) {
+      const focused = Math.min(pickerIndex, Math.max(0, browser.rows.length - 1))
+      return overComposer(pickerCard(state.picker, browser.rows, pickerSearch, focused, width, cardHeight))
     }
     if (state.picker !== undefined) {
       const statusText = browser.search?.loading ? 'Searching sessions…' : browser.search?.error
@@ -704,6 +742,16 @@ export function App({ store, controller, terminal, animations }: {
       const previewHeight = isSessions && height >= 18 ? Math.min(10, Math.floor(height * 0.35)) : 0
       const listHeight = Math.max(4, height - previewHeight)
       const selectedRow = Math.min(pickerIndex, Math.max(0, browser.rows.length - 1))
+      if (isSessions && width >= SESSIONS_SIDE_MIN_WIDTH && height >= 12) {
+        // A wide terminal sets the preview beside the list, so the list keeps the whole height.
+        const left = Math.max(44, Math.floor(width * 0.46)), right = width - left - 3
+        const list = pickerLayout(state.picker, browser.rows, pickerSearch, selectedRow, left, height, statusText)
+        const side = [panelTitle(right, 'Session preview'), ...previewRows(browser.preview, right)]
+        return fitScreen(list.map((value, at) => {
+          const fitted = fitRow(value, left)
+          return row(...fitted.spans, span(' '.repeat(left - widthOf(textOfRow(fitted)))), span(' │ ', 'comment'), ...side[at]?.spans ?? [])
+        }), width, height)
+      }
       const listRows = pickerLayout(state.picker, browser.rows, pickerSearch, selectedRow, width, listHeight, statusText)
       if (previewHeight === 0) return fitScreen(listRows, width, height)
       const prev = [
@@ -728,14 +776,17 @@ export function App({ store, controller, terminal, animations }: {
       // Motion off holds the fully formed whale; otherwise the loop runs from its first frame.
       const whale = state.motion === false ? animations.still(WELCOME_SCENE, WELCOME_STILL_FRAME)
         : animations.frame(WELCOME_SCENE, Math.max(0, tick - (welcomeStart?.tick ?? tick)) * ANIMATION_TICK_MS)
-      bodyRows.push(...welcomeRows(whale, width, viewportHeight))
+      const effort = state.selection.reasoningEffort
+      bodyRows.push(...welcomeRows(whale, width, viewportHeight,
+        `${state.cwd} · ${state.selection.provider}/${state.selection.model}${effort === undefined ? '' : ` ${effort}`}`))
     } else {
       const windowRows = docRows.slice(currentTop, currentTop + viewportHeight)
       const windowSelection = selection?.document !== undefined && effectiveSelection !== undefined
         ? { anchor: { ...effectiveSelection.anchor, y: effectiveSelection.anchor.y - currentTop },
           head: { ...effectiveSelection.head, y: effectiveSelection.head.y - currentTop } } : undefined
-      const visibleSlice = paintSelection(windowRows, windowSelection).map(r =>
-        searchMode === 'transcript' ? highlightRow(r, searchQuery.text) : r,
+      const currentHit = transcriptHits[searchHitIndex]
+      const visibleSlice = paintSelection(windowRows, windowSelection).map((r, at) =>
+        searchMode === 'transcript' ? highlightRow(r, searchQuery.text, currentTop + at === currentHit) : r,
       )
       bodyRows.push(...visibleSlice)
       while (bodyRows.length < viewportHeight) bodyRows.push(row(''))
@@ -754,7 +805,6 @@ export function App({ store, controller, terminal, animations }: {
       ...header,
       ...indicatorLines,
       ...bodyRows,
-      ...searchBarRows,
       ...keyRows,
       ...noteRows,
       ...compRows,
@@ -763,14 +813,14 @@ export function App({ store, controller, terminal, animations }: {
       ...foot,
     ], width, height)
   }, [
-    state, width, height, approvalAllowed, panelOffset, foot, qDraft, browser, pickerSearch, pickerIndex,
+    state, width, height, approvalAllowed, approvalArguments, panelOffset, foot, qDraft, browser, pickerSearch, pickerIndex,
     allCommands, hasStickyHeader, activePromptMark, visibleItems, marks, tick, docRows, currentTop, animations, welcomeStart,
     viewportHeight, searchMode, searchQuery.text, hasScrollBar, linesAboveBottom, header, indicatorLines, selection, effectiveSelection,
-    searchBarRows, keyRows, noteRows, compRows, cmdPopupRows, bottomRule,
+    transcriptHits, searchHitIndex, keyRows, noteRows, compRows, cmdPopupRows, bottomRule,
   ])
 
   const composerStartY = height - foot.length - bottomRule.length - cmdPopupRows.length - compRows.length
-  const onComposer = (y: number): boolean => composerShown && y >= composerStartY && y < composerStartY + compRows.length
+  const onComposer = (y: number): boolean => composerShown && searchMode === 'none' && y >= composerStartY && y < composerStartY + compRows.length
 
   usePaste((rawText: string) => {
     setSelection(undefined)
@@ -906,7 +956,8 @@ export function App({ store, controller, terminal, animations }: {
       }
       if (!mouse.primary || mouse.modified) return
       if (mouse.pressed && !mouse.motion) {
-        if (onComposer(mouse.y)) {
+        // A chip on the composer's rule keeps its own click.
+        if (onComposer(mouse.y) && hitTest(paintedFrame, mouse.x, mouse.y) === undefined) {
           const offset = composerOffsetAt(editor, width, maxComposerLines, composerScroll, mouse.y - composerStartY, mouse.x)
           setEditor(e => ({ text: e.text, cursor: offset, anchor: offset }))
           setDraggingDraft(true)
@@ -974,6 +1025,7 @@ export function App({ store, controller, terminal, animations }: {
       if (key.pageDown) { scrollPanel(panelFrame.current.page); return }
       if (key.leftArrow || key.rightArrow || key.tab) { setApprovalAllowed(a => !a); return }
       if (input === 'y' || input === 'Y') { setApprovalAllowed(true); return }
+      if (input === 'a' || input === 'A') { executeAction({ kind: 'approval-arguments' }); return }
       if (input === 'n' || input === 'N' || key.escape) {
         if (Date.now() - promptMountedAt.current < 250 && !key.escape) return
         controller.answerApproval(pending.id, 'rejected')
@@ -1020,6 +1072,11 @@ export function App({ store, controller, terminal, animations }: {
       }
       if (input === ' ' && opts[qDraft.optionIndex] !== undefined) {
         executeAction({ kind: 'question-option', index: qDraft.optionIndex })
+        return
+      }
+      // A digit picks the option with that number; a custom answer that starts with one opens with Tab.
+      if (/^[1-9]$/u.test(input) && !key.ctrl && !key.meta && opts[Number(input) - 1] !== undefined) {
+        executeAction({ kind: 'question-option', index: Number(input) - 1 })
         return
       }
       if (key.return) {

@@ -230,12 +230,16 @@ test('the Thinking scene sits under the live label, names its figure, and gives 
   assert.equal(textOfRow(rows[1]), label)
   // The figure is centred in the twelve rows under the label, and grey stars fill the rest of the width.
   const found = shown(screen(rows), THINKING_SCENE)
-  assert.deepEqual([found?.y, found?.x, rows.length], [2, 2 + Math.floor((98 - 48) / 2), 14])
-  assert.ok(rows.slice(2).every(line => widthOf(textOfRow(line)) === 100))
-  const sides = rows.slice(2).map(line => textOfRow(line).slice(2, found.x) + textOfRow(line).slice(found.x + 48)).join('')
+  assert.deepEqual([found?.y, found?.x, rows.length], [2, 2 + Math.floor((98 - 48) / 2), 15])
+  const scene = rows.slice(2, 14)
+  assert.ok(scene.every(line => widthOf(textOfRow(line)) === 100))
+  // The latest reasoning follows the scene behind a dotted rail, muted and italic, with a cursor after it.
+  assert.match(textOfRow(rows[14]), /^ {2}┊ \S.*▍$/u)
+  assert.ok(rows[14].spans.filter(part => !/^[ ┊▍]*$/u.test(part.text)).every(part => part.tone === 'muted' && part.italic === true))
+  const sides = scene.map(line => textOfRow(line).slice(2, found.x) + textOfRow(line).slice(found.x + 48)).join('')
   assert.ok(sides.replace(/[ ⠀]/gu, '').length >= 10, sides)
   // Only the figure is coloured; the side stars are grey.
-  for (const line of rows.slice(2)) {
+  for (const line of scene) {
     let x = 0
     for (const part of line.spans) {
       if (part.tone !== 'muted' && part.text.trim() !== '') assert.ok(x >= found.x && x + part.text.length <= found.x + 48, `${part.tone} at ${x}`)
@@ -250,9 +254,10 @@ test('the Thinking scene sits under the live label, names its figure, and gives 
   const held = shown(screen(still), THINKING_SCENE)
   assert.ok(same(THINKING_SCENE, held.index, figureStill(held.index)))
   const name = animations.caption(THINKING_SCENE, figureStill(held.index) * 100)
-  // The name sits on the label's row, centred on the scene.
+  // The name sits at the right end of the label's row, before a star mark.
   assert.ok(name !== '')
-  assert.equal(textOfRow(still[1]).indexOf(name), 2 + Math.floor((98 - name.length) / 2), textOfRow(still[1]))
+  assert.ok(textOfRow(still[1]).endsWith(`${name} ✧ `), textOfRow(still[1]))
+  assert.equal(widthOf(textOfRow(still[1])), 100)
   assert.ok(textOfRow(still[1]).startsWith(label))
   // Different thoughts open on different constellations.
   const names = new Set('abcdefghijklmnop'.split('').map(id => {
@@ -260,10 +265,11 @@ test('the Thinking scene sits under the live label, names its figure, and gives 
     return animations.caption(THINKING_SCENE, figureStill(shown(screen(value), THINKING_SCENE).index) * 100)
   }))
   assert.ok(names.size >= 6, [...names].join(', '))
-  // When the centre is taken by the label, the name follows it two cells later.
+  // A narrower scene keeps the name at the right end while two cells stay between it and the label.
   const slim = itemRows(live(), options({ width: 60, motion: false }))
-  assert.equal(slim.length, 14)
-  assert.match(textOfRow(slim[1]), new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')} {2}\\S`, 'u'))
+  assert.equal(slim.length, 15)
+  assert.match(textOfRow(slim[1]), new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')} {2,}\\S.* ✧ $`, 'u'))
+  assert.equal(widthOf(textOfRow(slim[1])), 60)
   // Narrower than the scene: no scene.
   assert.equal(shown(screen(itemRows(live(), options({ width: 49 }))), THINKING_SCENE), undefined)
   // Opened, the reasoning replaces the scene; hidden again, the scene returns.
@@ -273,7 +279,7 @@ test('the Thinking scene sits under the live label, names its figure, and gives 
   // A short terminal gets the small mark beside the label on its middle row.
   const mark = animations.frame(THINKING_MARK, 12_000).map(textOfRow)
   const short = itemRows(live(), options({ terminalRows: 24 }))
-  assert.deepEqual(screen(short).slice(1), [' '.repeat(label.length + 2) + mark[0], `${label}  ${mark[1]}`, ' '.repeat(label.length + 2) + mark[2]])
+  assert.deepEqual(screen(short).slice(1), [' '.repeat(label.length + 2) + mark[0], `${label}  ${mark[1]}`, ' '.repeat(label.length + 2) + mark[2], '  ┊ Looking at the code.▍'])
   // Too narrow for the scene and for label and mark on one row: the label wraps alone.
   const narrow = itemRows(live(), options({ width: 40 }))
   assert.doesNotMatch(screen(narrow).join('\n'), BRAILLE)
@@ -305,7 +311,7 @@ test('the Thinking scene moves with time, holds a named figure with motion off, 
     store.update((state) => { state.status = 'idle'; state.transcript = { ...state.transcript, items: [user, { ...state.transcript.items[1], reasoningEndedAt: Date.now(), settled: true }] } })
     await still.flush()
     assert.doesNotMatch(body(still), BRAILLE)
-    assert.match(still.text(), /◦ Thought {2}1 line/)
+    assert.match(still.text(), /✦ Thought · /)
   } finally { still.dispose() }
   // A short terminal falls back to the small mark.
   const short = harness(100, 24, thinking({ motion: false }))
@@ -361,7 +367,9 @@ test('the end of the pass removes the label and mark at once and leaves the resu
     await h.flush()
     assert.doesNotMatch(body(h), BRAILLE)
     assert.doesNotMatch(h.text(), /pruning context/)
-    assert.match(h.text(), /▸ ▞▚ laya_context_pruner {2}140k → 98k tokens \(−30%\) {2}3 kept · 1 truncated · 2 dropped · 12s/)
+    // The result says in words what happened, then compares the context before and after as two meters.
+    assert.match(h.text(), /▸ ▞▚ Context pruned {2}−30% +12s\n {4}before ▰{24} {2}140k\n {4}after {2}▰{17}▱{7} {2}98k {3}3 kept · 1 truncated · 2 dropped/)
+    assert.doesNotMatch(h.text(), /laya_context_pruner/)
   } finally { h.dispose() }
 })
 

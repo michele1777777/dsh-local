@@ -9,6 +9,8 @@ export type UiAction =
   | { kind: 'command-complete'; name: string }
   | { kind: 'approval-select'; allowed: boolean }
   | { kind: 'approval-confirm' }
+  /** Opens or folds the complete arguments of the approval being asked. */
+  | { kind: 'approval-arguments' }
   | { kind: 'question-option'; index: number }
   | { kind: 'question-confirm' }
   | { kind: 'detach'; index: number; name: string }

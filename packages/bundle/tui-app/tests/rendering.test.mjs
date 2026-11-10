@@ -28,7 +28,8 @@ test('Markdown preserves complete code, links and tables at narrow and wide size
   for (const width of [29, 40, 60, 100]) {
     const rows = markdownRows(source, width); bounded(rows, width)
     assert.ok(text(rows).includes('alpha')); assert.ok(text(rows).includes('beta gamma')); assert.ok(text(rows).includes('reference'))
-    assert.ok(text(rows).replace(/\s*│\n\s*│ /g, '').includes('unique-marker'))
+    // A wrapped code line continues on the next row of the band, with no border between its parts.
+    assert.ok(text(rows).replace(/ *\n/g, '').includes('unique-marker'))
   }
 })
 test('table cells beyond a short header remain readable', () => {
@@ -189,12 +190,14 @@ test('slash commands in the conversation use their own light-blue tone', () => {
   assert.notEqual(palette('dark').command, palette('dark').accent)
   assert.equal(palette('mono').command, undefined)
 })
-test('a tool heading colours only its category tag; the title and arguments stay plain, with no filled badge', () => {
+test('a tool heading colours only its verb, in the category tone; the target stays plain, with no filled badge', () => {
   const rows = itemRows(tool(), opts(80, true))
-  const heading = rows.find(value => textOfRow(value).includes('CMD'))
-  assert.ok(heading !== undefined)
-  assert.ok(heading.spans.every(part => part.inverse !== true))
-  assert.equal(heading.spans.find(part => part.text === 'CMD')?.tone, 'toolBash')
+  const heading = rows[1]
+  assert.match(textOfRow(heading), /^ {2}▾ ✓ Run {4}pnpm test --filter auth {2}exit 0 +1\.8s$/)
+  assert.ok(heading.spans.every(part => part.inverse !== true && part.background === undefined))
+  const verb = heading.spans.find(part => part.text.trim() === 'Run')
+  assert.equal(verb?.tone, 'toolBash'); assert.equal(verb?.bold, true)
+  assert.doesNotMatch(text(rows), /CMD/)
   assert.ok(heading.spans.filter(part => part.text.includes('pnpm test --filter auth')).every(part => part.tone === 'text'))
   const command = itemRows({ kind: 'command', id: 'c', name: 'goal', args: 'ship it', settled: true }, opts())
   assert.equal(command.flatMap(value => value.spans).find(part => part.text.includes('ship it'))?.tone, 'text')
@@ -215,27 +218,29 @@ test('without a terminal height, live reasoning carries the small Thinking mark 
   const options = {...opts(100), tick:8, now:17000, animations}
   renderer.render([old],options)
   const rows = renderer.render([old,live],options)
-  // A settled thought folds to one row, in the tool-row columns, with its duration on the right.
-  assert.deepEqual(rows.filter(r=>r.itemId==='old').map(textOfRow), ['', `  ◦ Thought  1 line${' '.repeat(77)}3.5s`])
+  // A settled thought folds to one row that says how long it took.
+  assert.deepEqual(rows.filter(r=>r.itemId==='old').map(textOfRow), ['', '  ✦ Thought · 3.5s'])
   assert.doesNotMatch(text(rows.filter(r=>r.itemId==='old')), /[\u2801-\u28ff]/u)
   const label=rows.find(r=>textOfRow(r).includes('Thinking…'))
   assert.match(textOfRow(label), /^ {2}› Thinking… · 7s · 2 lines {2}[ \u2800-\u28ff]{12}$/u)
-  // Live reasoning has no frame: only the label row and the mark's rows above and below it.
+  // Live reasoning has no frame: the label row with the mark's rows above and below it, then the latest two reasoning rows.
   const own = rows.filter(r=>r.itemId==='new')
-  assert.equal(own.length, 4)
+  assert.equal(own.length, 6)
   assert.doesNotMatch(text(own), /[╭╮╰╯│─⎻⎼]|Show details/u)
-  assert.ok(own.slice(1).some(r=>r.spans.some(p=>p.tone==='reasoning' && /[\u2801-\u28ff]/u.test(p.text))))
-  assert.deepEqual(own.slice(1).map(r=>textOfRow(r).slice(30)), animations.frame(THINKING_MARK, 7000).map(textOfRow))
+  assert.ok(own.slice(1, 4).some(r=>r.spans.some(p=>p.tone==='reasoning' && /[\u2801-\u28ff]/u.test(p.text))))
+  assert.deepEqual(own.slice(1, 4).map(r=>textOfRow(r).slice(30)), animations.frame(THINKING_MARK, 7000).map(textOfRow))
+  assert.deepEqual(own.slice(4).map(textOfRow), ['  ┊ first', '  ┊ second▍'])
   assert.match(text(renderer.render([old,live],{...options,now:18000})), /Thinking… · 8s/)
   live.reasoningEndedAt=18500;live.settled=true
   const done=renderer.render([old,live],{...options,now:30000})
   // Settled, live reasoning becomes one row joined to the thought before it, without the mark.
-  assert.deepEqual(done.filter(r=>r.itemId==='new').map(textOfRow), [`  ◦ Thought  2 lines${' '.repeat(76)}8.5s`])
+  assert.deepEqual(done.filter(r=>r.itemId==='new').map(textOfRow), ['  ✦ Thought · 8.5s'])
   assert.doesNotMatch(text(done), /[╭╮╰╯\u2801-\u28ff]/u)
   assert.deepEqual(renderer.render([old,live],{...options,now:60000,tick:20}),done)
-  // Opened, it is the closed card with the reasoning inside.
+  // Opened, it is its title row with the reasoning behind a rail, and no frame.
   const open=renderer.render([old,live],{...options,now:30000,overrides:{'reasoning:new':true}})
-  assert.match(text(open.filter(r=>r.itemId==='new')), /╭─ ▾ Thought · 8s · 2 lines ─+╮[\s\S]*first[\s\S]*second/u)
+  assert.match(text(open.filter(r=>r.itemId==='new')), /^ {2}▾ Thought · 8s · 2 lines\n {2}┃ first\n {2}┃ second$/mu)
+  assert.doesNotMatch(text(open), /[╭╮╰╯│]/u)
   // Every cell of the heading after the margin toggles the reasoning.
   assert.ok(done.filter(r=>r.itemId==='new' && r.heading).every(r=>r.spans.slice(1).every(p=>p.action?.kind==='toggle-reasoning')))
 })
@@ -270,27 +275,55 @@ test('the status row shows a running Laya pass as its phase label alone and the 
   assert.doesNotMatch(textOfRow(statusRow(state,100,20,100000)),/1m/)
 })
 
-test('disclosure frames keep both edges on one row and expose exact tool fields', () => {
+test('an open tool card is its title row and a rail, without a frame, and shows the command and what it does', () => {
   const item = tool({call:{card:'terminal',title:'echo exact-command',description:'Check the shell',cwd:'/work'},args:{command:'echo exact-command',description:'Check the shell',timeout:10}})
   for (const width of [8, 29, 39, 79, 120]) for (const expanded of [false,true]) {
     const rows=itemRows(item,{width,expanded,overrides:{}})
     bounded(rows,width)
-    assert.doesNotMatch(text(rows), /Arguments|Directory|"command"|"description"/)
+    assert.doesNotMatch(text(rows), /Arguments|Directory|"command"|"description"|[╭╮╰╯│]/u)
     if (!expanded) {
-      // Collapsed, the call is one clickable row without borders.
-      assert.equal(rows.length,2);assert.doesNotMatch(text(rows),/[╭╮╰╯│]/u)
-      assert.ok(rows[1].spans.every(p=>p.action?.kind==='inspect-item'&&p.action.itemId===item.id))
+      // Collapsed, the call is one clickable row, and its description takes rows of its own when it does not fit beside it.
+      assert.ok(width>=79?rows.length===2:rows.length>=2)
+      assert.ok(rows.slice(1).every(r=>r.spans.every(p=>p.action?.kind==='inspect-item'&&p.action.itemId===item.id)))
       continue
     }
-    const top=rows.find(r=>textOfRow(r).trimStart().startsWith('╭'))
-    assert.ok(textOfRow(top).endsWith('╮'))
-    assert.equal(widthOf(textOfRow(top)),width)
-    const bottom=rows.at(-1)
-    assert.ok(textOfRow(bottom).endsWith('╯'))
-    assert.equal(widthOf(textOfRow(bottom)),width)
-    for (const edge of [top,bottom]) assert.ok(edge.spans.filter(p=>p.text.trim()!=='').every(p=>p.action?.kind==='inspect-item'&&p.action.itemId===item.id))
-    if(width===79)for(const value of ['Description','Check the shell','Command','echo exact-command','Result']) assert.ok(text(rows).includes(value),value)
+    // Open, the title row folds the card again; every row under it starts with the rail, in the tool's tone.
+    const title=rows[1]
+    assert.ok(title.spans.filter(p=>p.text.trim()!=='').every(p=>p.action?.kind==='inspect-item'&&p.action.itemId===item.id))
+    if(width>=12){
+      assert.ok(rows.slice(2).every(r=>textOfRow(r).startsWith('  ┃ ')))
+      assert.ok(rows.slice(2).every(r=>r.spans[1].tone==='toolBash'))
+    }
+    if(width===79){
+      for(const value of ['Check the shell','echo exact-command','exit 0']) assert.ok(text(rows).includes(value),value)
+      assert.doesNotMatch(text(rows),/Description|Command|Result|Hide details/)
+    }
   }
+})
+test('a pruning result compares before and after as meters and marks each output with a full, half or empty circle', () => {
+  const item={kind:'laya',id:'laya',outcome:'pruned',tokensBefore:48200,tokensAfter:21900,ms:3400,kept:1,truncated:1,dropped:1,settled:true,entries:[
+    {label:'read src/auth.ts',action:'KEEP',lines:100,tokensBefore:1800,tokensAfter:1800},{label:'bash pnpm test',action:'TRUNCATE',lines:420,tokensBefore:9200,tokensAfter:1400},
+    {label:'grep "token"',action:'DROP',lines:260,tokensBefore:6100,tokensAfter:0}]}
+  const rows=itemRows(item,opts(100,false))
+  assert.deepEqual(rows.slice(1).map(value=>textOfRow(value).trimEnd()),[
+    `  ▸ ▞▚ Context pruned  −55%${' '.repeat(69)}3.4s`,
+    '    before ▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰  48k',
+    '    after  ▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱  22k   1 kept · 1 truncated · 1 dropped',
+    '    ◐ truncated bash pnpm test     9.2k → 1.4k  ▰▰▱▱▱▱▱▱▱▱',
+    '    ○ dropped   grep "token"       6.1k → 0     ▱▱▱▱▱▱▱▱▱▱',
+    '    ● kept      read src/auth.ts   1.8k → 1.8k  ▰▰▰▰▰▰▰▰▰▰',
+  ])
+  // One colour: the accent for what remains, greys for the rest; no success, warning or error tone.
+  const tones=new Set(rows.flatMap(value=>value.spans).map(part=>part.tone))
+  assert.ok(['success','warning','error'].every(tone=>!tones.has(tone)))
+  assert.ok(rows[1].spans.every(part=>part.action?.kind==='inspect-item'))
+  // Too narrow for the meters, the title carries the figures; a pass that fell back says so in the warning tone.
+  for(const width of [12,30,59,60,100]) bounded(itemRows(item,opts(width,true)),width)
+  assert.match(text(itemRows(item,opts(40,false))),/Context pruned {2}−55% {2}48k → 22k/)
+  assert.doesNotMatch(text(itemRows(item,opts(40,false))),/[▰▱]/u)
+  const skipped=itemRows({...item,outcome:'fallback',error:'model unavailable',entries:[]},opts(100,false))
+  assert.match(text(skipped),/▸ ▞▚ Context pruning skipped · regular compaction decides · model unavailable/)
+  assert.ok(skipped.flatMap(value=>value.spans).some(part=>part.tone==='warning'))
 })
 test('slash command disclosure reveals all output and arguments without changing history', () => {
   const item={kind:'command',id:'command-view',name:'example',args:'the original arguments',settled:true,result:{kind:'success',text:Array.from({length:20},(_,i)=>`result-${i}`).join('\n')}}

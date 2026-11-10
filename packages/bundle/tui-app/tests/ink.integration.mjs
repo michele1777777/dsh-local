@@ -33,7 +33,7 @@ for (const columns of [40, 80, 160]) test(`real Ink keeps Copy and pane widths a
   const rows = itemRows(item, { width, expanded: true, overrides: {} })
   const linked = linkRows(rows, '/workspace', true)
   const painted = safeText(renderToString(createElement(Screen, { rows: linked, width, theme: 'mono' }), { columns }))
-  assert.match(painted, /─ Copy ─╮/)
+  assert.match(painted, /─ Copy *$/m)
   assert.doesNotMatch(painted, /\[object Object\]/)
   assert.ok(painted.split('\n').every(line => widthOf(line) <= width))
   const panes = paneWidths(width, 'auto')
