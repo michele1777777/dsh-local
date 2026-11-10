@@ -158,8 +158,8 @@ const MARGIN = '  '
 const MARGIN_MIN_WIDTH = 12
 /** Cells inside the margin of a document `width` cells wide. */
 const contentWidth = (width: number): number => Math.max(1, width - (width >= MARGIN_MIN_WIDTH ? MARGIN.length : 0))
-/** A description narrower than this is left out rather than cut to a stub. */
-const DESCRIPTION_MIN_CELLS = 6
+/** The command keeps at least this many cells (glyph, verb and the start of the target) before the description is cut. */
+const COMMAND_MIN_CELLS = 16
 /** Share of the content width the shared description column may start at, so long commands leave descriptions room. */
 const COLUMN_SHARE = 0.6
 
@@ -231,18 +231,18 @@ interface OneRowColumns {
 
 /**
  * One row in three columns: the command, the description starting at `column` (or {@link GAP} cells after a command that
- * reaches it), and the duration right-aligned at `width`, muted. Narrowing the row cuts the description first, dropping it
- * below {@link DESCRIPTION_MIN_CELLS}, then the command; the duration stays.
+ * reaches it), and the duration right-aligned at `width`, muted. The description says what the call did, so narrowing the
+ * row cuts the command first, down to {@link COMMAND_MIN_CELLS}, and moves the description left of `column` when needed;
+ * only then is the description cut. The duration stays.
  */
 function columnsRow(columns: OneRowColumns, column: number | undefined, width: number): Row {
   const { time } = columns
   const room = Math.max(1, width - (time === '' ? 0 : widthOf(time) + GAP))
-  const command = fitRow(row(...columns.command), room)
+  const wanted = columns.description === undefined ? 0 : widthOf(columns.description.text) + GAP
+  const command = fitRow(row(...columns.command), Math.max(Math.min(COMMAND_MIN_CELLS, room), room - wanted))
   const used = widthOf(textOfRow(command))
-  const at = Math.max(used + GAP, column ?? 0)
-  const spare = room - at
-  const description = columns.description === undefined || spare < DESCRIPTION_MIN_CELLS
-    ? undefined : fitRow(row(columns.description), spare)
+  const at = Math.max(used + GAP, Math.min(column ?? 0, room - wanted + GAP))
+  const description = columns.description === undefined || room - at < 1 ? undefined : fitRow(row(columns.description), room - at)
   const left = description === undefined ? command : row(...command.spans, span(' '.repeat(at - used)), ...description.spans)
   if (time === '') return left
   const gap = Math.max(1, width - widthOf(textOfRow(left)) - widthOf(time))

@@ -66,15 +66,15 @@ test('collapsed tool calls are single rows in three columns: command, muted desc
   assert.match(text(itemRows(tool(), { width: 100, expanded: false, overrides: { 'tool-1': true } })), /╭─ ▾ ✓ CMD pnpm test --filter auth/)
 })
 
-test('a narrowing tool row cuts the description first, then the command, and keeps the duration', () => {
+test('a narrowing tool row cuts the command first, keeps the description visible, and keeps the duration', () => {
   const long = tool({ call: { card: 'terminal', title: 'pnpm exec oxlint packages/core/src/auth.ts --deny-warnings', description: 'Lint' },
     result: { card: 'terminal', output: 'Found 0 warnings and 0 errors in 2 files.', exitCode: 0 } })
   const at = width => textOfRow(itemRows(long, { width, expanded: false, overrides: {} })[1])
   assert.equal(at(200), `  ✓ Run pnpm exec oxlint packages/core/src/auth.ts --deny-warnings  Found 0 warnings and 0 errors in 2 files.${' '.repeat(87)}1.8s`)
-  assert.match(at(90), /^ {2}✓ Run pnpm exec oxlint packages\/core\/src\/auth\.ts --deny-warnings {2}Found 0 warning… {2}1\.8s$/u)
-  // Below six cells the description leaves; then the command takes the ellipsis.
-  assert.match(at(76), /^ {2}✓ Run pnpm exec oxlint packages\/core\/src\/auth\.ts --deny-warnings +1\.8s$/u)
-  assert.match(at(40), /^ {2}✓ Run pnpm exec oxlint packages… {2}1\.8s$/u)
+  assert.equal(at(90), '  ✓ Run pnpm exec oxlint packages/core/s…  Found 0 warnings and 0 errors in 2 files.  1.8s')
+  assert.equal(at(76), '  ✓ Run pnpm exec oxlint p…  Found 0 warnings and 0 errors in 2 files.  1.8s')
+  // Once the command is down to 16 cells, the description takes the ellipsis.
+  assert.equal(at(40), '  ✓ Run pnpm exec…  Found 0 warni…  1.8s')
   for (const width of [12, 20, 40, 76, 90, 200]) assert.equal(widthOf(at(width)), width)
   // A shared column never starts past 60% of the content width, so one long command does not push every description away.
   const rows = createDocumentRenderer().render([conversation()[3], long], { width: 100, expanded: false, overrides: {} })
