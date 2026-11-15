@@ -2,4 +2,4 @@
 export * from '@deepseek-ai/dsh-llm/src/message.ts'
 export * from '@deepseek-ai/dsh-llm/src/assembler.ts'
 export * from '@deepseek-ai/dsh-llm/src/call-config.ts'
-export * from '@deepseek-ai/dsh-llm/brand'
+export * from '@deepseek-ai/dsh-llm/src/brand.ts'

@@ -47,7 +47,8 @@ declare module '@deepseek-ai/dsh-session/types' {
   }
 }
 
-import { ApprovalRequestId } from './types.ts'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { ApprovalRequestId } from './types.ts'
 import type { ApprovalOutcome, ApprovalRequestEvent, ApprovalReview } from './types.ts'
 
 export { ApprovalRequestId } from './types.ts'
@@ -250,7 +251,7 @@ export class ApprovalService extends Service {
         + 'Ask from inside the turn that needs the decision.',
       )
     }
-    const id = ApprovalRequestId(randomUUID())
+    const id = brandString<ApprovalRequestId>(randomUUID())
     session.append('approval/asked', {
       id,
       toolName: req.toolName,

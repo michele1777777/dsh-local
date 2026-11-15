@@ -6,10 +6,11 @@ import z from '@deepseek-ai/schemastery'
 import type { LlmResolvedModelInfo, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionSeq } from '@deepseek-ai/dsh-session'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { SessionTitleProviderId } from '@deepseek-ai/dsh-session-title/types'
 import {
   fallbackSessionTitle,
   normalizeSessionTitle,
-  SessionTitleProviderId,
   type SessionTitleUserMessage,
 } from '@deepseek-ai/dsh-session-title'
 import {
@@ -175,7 +176,7 @@ function goalSeed(session: Session): { seq: SessionSeq; text: string } | undefin
  */
 export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
-  const titleProvider = SessionTitleProviderId(name)
+  const titleProvider = brandString<SessionTitleProviderId>(name)
   ctx.sessionTitle.register({
     id: titleProvider,
     automatic: 'first-prompt',

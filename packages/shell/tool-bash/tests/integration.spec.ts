@@ -1,12 +1,13 @@
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as PtcToolExecutor from '@deepseek-ai/dsh-tool-executor-ptc'
-import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type ToolCallId } from '@deepseek-ai/dsh-llm'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SessionId, SessionEvent } from '@deepseek-ai/dsh-session'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -114,7 +115,7 @@ describe('bash tool through the agent loop', () => {
     ])
     const ctx = await harness(adapter)
     try {
-      const agent = await ctx.agentLoop.create(SessionId('steering-loop'), { provider: 'mock', model: 'mock' }, { cwd: dir })
+      const agent = await ctx.agentLoop.create(brandString<SessionId>('steering-loop'), { provider: 'mock', model: 'mock' }, { cwd: dir })
       agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Start the command' }] }))
       await expect.poll(() => ctx.jobs.list(agent.id)[0]?.output.total).toBe(5)
       jobId = ctx.jobs.list(agent.id)[0]!.id
@@ -137,7 +138,7 @@ describe('bash tool through the agent loop', () => {
     mkdirSync(selected)
     const ctx = await harness(new MockAdapter([]))
     try {
-      const agent = await ctx.agentLoop.create(SessionId('nested-shell-current-directory'), {}, { cwd: root })
+      const agent = await ctx.agentLoop.create(brandString<SessionId>('nested-shell-current-directory'), {}, { cwd: root })
       await ctx.workingDirectory.set(agent, selected)
       class BashBindingRuntime extends PtcRuntime {
         readonly language = 'typescript'
@@ -150,13 +151,13 @@ describe('bash tool through the agent loop', () => {
           if (bash === undefined) throw new Error('missing bash binding')
           const value = await bash({ command: 'pwd', description: 'Print launch directory' })
           expect(value).toMatchObject({ cwd: selected, stdout: { text: `${selected}\n` } })
-          return { logs: [], value }
+          return { output: [], value }
         }
       }
       await ctx.plugin(BashBindingRuntime)
       await agent.ctx.plugin(PtcToolExecutor)
       const result = await executeModelToolFixture(ctx, {
-        callId: ToolCallId('nested-shell-root'), agent, signal: new AbortController().signal, name: 'run_code',
+        callId: brandString<ToolCallId>('nested-shell-root'), agent, signal: new AbortController().signal, name: 'run_code',
         arguments: { code: 'return await tools.bash({ command: "pwd", description: "Print launch directory" })', description: 'Inspect current directory' },
       })
       expect(result.error).toBeUndefined()
@@ -185,7 +186,7 @@ describe('bash tool through the agent loop', () => {
     ])
     const ctx = await harness(adapter, root, dshHome)
     const handle = await ctx.agents.create({
-      sessionId: SessionId('session-env-id'),
+      sessionId: brandString<SessionId>('session-env-id'),
       agentOptions: { provider: 'mock', model: 'mock' },
     })
     const agent = handle.agent
@@ -204,7 +205,7 @@ describe('bash tool through the agent loop', () => {
       textResponse('The command printed integration-ok.'),
     ])
     const ctx = await harness(adapter)
-    const agent = await ctx.agentLoop.create(SessionId('it-fg'), { provider: 'mock', model: 'mock' })
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('it-fg'), { provider: 'mock', model: 'mock' })
 
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'run echo integration-ok' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
@@ -234,7 +235,7 @@ describe('bash tool through the agent loop', () => {
       textResponse('It failed with code 9.'),
     ])
     const ctx = await harness(adapter)
-    const agent = await ctx.agentLoop.create(SessionId('it-exit'), { provider: 'mock', model: 'mock' })
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('it-exit'), { provider: 'mock', model: 'mock' })
 
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'run exit 9' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
@@ -270,7 +271,7 @@ describe('bash tool through the agent loop', () => {
       textResponse('Background job finished.'),
     ])
     const ctx = await harness(adapter)
-    const agent = await ctx.agentLoop.create(SessionId('it-bg'), { provider: 'mock', model: 'mock' })
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('it-bg'), { provider: 'mock', model: 'mock' })
 
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'run echo bg-ok in the background' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)

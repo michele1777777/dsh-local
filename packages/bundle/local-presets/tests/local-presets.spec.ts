@@ -3,13 +3,12 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import * as yaml from 'js-yaml'
 import { describe, expect, it } from 'vitest'
 import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
-import { entryListSchema, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
+import { parseEntryYaml, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 
 const bundles = fileURLToPath(new URL('../..', import.meta.url))
-const load = (path: string) => yaml.load(readFileSync(resolve(bundles, path), 'utf8'), { schema: entryListSchema }) as PatchOptions[]
+const load = (path: string) => parseEntryYaml(readFileSync(resolve(bundles, path), 'utf8')) as PatchOptions[]
 
 interface Preset { id: string; plugins: EntryOptions[] }
 

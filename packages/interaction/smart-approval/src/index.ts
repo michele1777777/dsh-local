@@ -5,8 +5,7 @@ import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { SessionSeq } from '@deepseek-ai/dsh-session/types'
-import { CommandDefinitionId } from '@deepseek-ai/dsh-commands/brand'
-import type {} from '@deepseek-ai/dsh-commands'
+import { CommandDefinitionId } from '@deepseek-ai/dsh-commands'
 // Session-event augmentations for the revision counter below: the sandbox mode
 // and the routed model are declared by the packages that own those events.
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
