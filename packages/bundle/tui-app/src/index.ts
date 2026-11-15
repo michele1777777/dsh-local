@@ -25,6 +25,7 @@ import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-smart-approval'
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import { foldPermissionAudit } from './permission-audit.ts'
+import { AUTO_PERMISSION } from './screen.ts'
 import type { AskUserQuestionAnswer } from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-cmdline'
@@ -495,7 +496,9 @@ export async function run(ctx: Context, config: Config, io: TuiIo): Promise<void
         await ensureSession()
         const selected = service.current(requireAgent().session)
         openPicker({ kind: 'permissions', title: 'Permissions · current session', rows: service.catalog().options.map(option => ({
-          id: option.value, label: option.name, detail: option.description ?? option.value,
+          id: option.value,
+          label: option.value === AUTO_PERMISSION.value ? AUTO_PERMISSION.label : option.name,
+          detail: option.value === AUTO_PERMISSION.value ? `${AUTO_PERMISSION.summary} ${AUTO_PERMISSION.ask}` : option.description ?? option.value,
           command: `/permission ${option.value}`, current: option.value === selected,
         })) })
         return true

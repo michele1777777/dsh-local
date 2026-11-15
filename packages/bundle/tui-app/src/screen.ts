@@ -15,6 +15,15 @@ import { COPY_LABEL, markdownRows } from './markdown-layout.ts'
 import { BOX_MIN_WIDTH, boxBottom, boxLine, boxTop, fitRow, indentRows, onBackground, padText, row, rule, span, STATUS_DOT, textOfRow, twoSides, widthOf, wrapProse, wrapRow, type Row, type Span } from './rich-text.ts'
 import { contentSummary, jsonText, safeText, tokens } from './terminal.ts'
 
+/** Auto copy shared by the terminal's permission picker, status line, and inspector. */
+export const AUTO_PERMISSION = {
+  value: 'auto',
+  label: 'Auto',
+  summary: 'No sandbox. The same model reviews calls.',
+  ask: 'Denied calls need your approval.',
+  never: 'Denials are final.',
+} as const
+
 /**
  * The sticky prompt header: one clickable line naming the request of the
  * section being read. Every cell, the gap included, jumps to that prompt.
@@ -205,7 +214,8 @@ export function statusRow(state: ChatState, width: number, tick: number, now: nu
   const permission = record(state.projections.permissions).currentValue
   if (typeof permission === 'string' && permission !== state.defaultPermission) {
     // Full access is the one preset that keeps a warning colour.
-    entries.push({ side: 'left', keep: 95, spans: [{ ...span(permission, permission === 'danger-full-access' ? 'warning' : 'muted'), action: { kind: 'open-permissions' } }] })
+    const label = permission === AUTO_PERMISSION.value ? AUTO_PERMISSION.label : permission
+    entries.push({ side: 'left', keep: 95, spans: [{ ...span(label, permission === 'danger-full-access' ? 'warning' : 'muted'), action: { kind: 'open-permissions' } }] })
   }
   // Only running jobs are counted; settled records stay listed in the jobs and tasks panels.
   const live = state.jobs.filter(liveJob).length
@@ -986,13 +996,17 @@ export function inspectorRows(state: ChatState, panel: ChatState['panel'], comma
     for (const entry of commands) output.push(...wrapRow(row(span(`/${entry.name}${entry.hint === undefined ? '' : ` <${entry.hint}>` }  `, 'command'), entry.description), width))
   } else if (panel === 'permissions') {
     const permission = record(state.projections.permissions).currentValue
+    const auto = permission === AUTO_PERMISSION.value
+    const label = auto ? AUTO_PERMISSION.label : typeof permission === 'string' ? permission : '—'
+    const policy = state.approvalPolicy
     // The preset in force is a filled label; the policy it resolves to follows, muted.
-    output.push(row(span('Preset   ', 'muted'), { text: ` ${typeof permission === 'string' ? permission : '—'} `, tone: 'accent', bold: true, inverse: true },
-      span('   policy ', 'comment'), span(shown(state.approvalPolicy), 'text')), ...markdownRows(state.approvalPolicy === 'never'
-      ? 'The core rejects requests that need approval. “Never” does not mean automatic approval.'
-      : permission === 'smart' ? 'Smart uses a separate same-model request for eligible sandbox escalations. Only low-risk decisions can grant this invocation. High-risk, ambiguous, invalid or timed-out reviews fall back to the existing human dialog. Extra tokens are not included in the agent context or its decode metrics.'
-        : state.approvalPolicy === 'ask' ? 'When the core asks, choose **Allow once** or **Reject**. Grants do not persist to the session. The pending dialog defaults to Reject.'
-          : 'The approval service is not available in this session preset.', width), row(''))
+    output.push(row(span('Preset   ', 'muted'), { text: ` ${label} `, tone: 'accent', bold: true, inverse: true },
+      span('   policy ', 'comment'), span(shown(policy), 'text')), ...markdownRows(auto
+      ? `${AUTO_PERMISSION.summary} Trusted tools skip review. ${policy === 'never' ? AUTO_PERMISSION.never : AUTO_PERMISSION.ask}`
+      : policy === 'never' ? 'The core rejects requests that need approval. “Never” does not mean automatic approval.'
+        : permission === 'smart' ? 'Smart uses a separate same-model request for eligible sandbox escalations. Only low-risk decisions can grant this invocation. High-risk, ambiguous, invalid or timed-out reviews fall back to the existing human dialog. Extra tokens are not included in the agent context or its decode metrics.'
+          : policy === 'ask' ? 'When the core asks, choose **Allow once** or **Reject**. Grants do not persist to the session. The pending dialog defaults to Reject.'
+            : 'The approval service is not available in this session preset.', width), row(''))
     const audit = state.permissionAudit ?? []
     output.push(audit.length === 0 ? ended(heading('Recent requests', 'latest 50'), 'none', width) : heading('Recent requests', 'latest 50'))
     const toolCells = Math.min(20, Math.max(0, ...audit.map(item => widthOf(safeText(item.toolName)))))
@@ -1004,7 +1018,9 @@ export function inspectorRows(state: ChatState, panel: ChatState['panel'], comma
         span(decision, item.outcome === 'allowed-once' ? 'text' : 'muted'), ...item.owner === state.sessionId ? [] : [span(`   subagent ${item.owner}`, 'comment')]), width))
       if (item.review !== undefined) output.push(...wrapRow(row(span(`        ${item.review.reason} · ${duration(item.review.durationMs)}`, 'muted')), width))
     }
-    output.push(row(''), ...markdownRows('Use /auto-approve smart, /auto-approve manual, or /auto-approve history. Smart is not a security guarantee. Full access is separate and requires explicit confirmation.', width))
+    output.push(row(''), ...markdownRows(auto
+      ? 'Use /permission to change the current session preset.'
+      : 'Use /auto-approve smart, /auto-approve manual, or /auto-approve history. Smart is not a security guarantee. Full access is separate and requires explicit confirmation.', width))
     output.push(row(''), ...markdownRows('This is a read-only inspector. Policy, tool availability, sandboxing and admission remain owned by the same services as Web. This panel is not a sandbox guarantee.', width))
     for (const pending of state.pending) {
       if (pending.kind === 'approval') output.push(row(''), row(span('Waiting for a decision · ', 'warning', true), span(pending.toolName, 'text', true)), ...approvalDetails(pending, width, true))

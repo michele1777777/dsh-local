@@ -4773,7 +4773,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tui-app`
 
 - `inject`: `agentDefaultModel` · `agents` · `attachments` · `sessionController` · `sessionQuery` · `sessionProjections` · `sessions`
-- `source`: [`packages/bundle/tui-app/src/index.ts:58`](../packages/bundle/tui-app/src/index.ts)
+- `source`: [`packages/bundle/tui-app/src/index.ts:59`](../packages/bundle/tui-app/src/index.ts)
 
 ```ts config-catalog
 /** Startup request for the terminal chat, normally supplied by `tui-startup`. */

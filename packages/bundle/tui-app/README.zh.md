@@ -204,6 +204,8 @@ HTTP/HTTPS 链接和生成的本地文件引用使用 OSC 8。请用模拟器的
 
 问题和计划审阅卡片显示完整的 Markdown 和选项说明；焦点选项位于选中背景上。选项带编号，数字键 1–9 选择对应编号的选项，因此以数字开头的自定义答案需先按 Tab。Up/Down 在选项间移动；Space 切换高亮选项；Tab 切换到自定义文本，直接输入也会开始自定义文本；Enter 确认，同样受 250 ms 防护。单选问题发送高亮选项或自定义文本中获得焦点的一方；多选问题把勾选的选项与自定义文本一起保留。多个问题保留现有的回答字段。Page Up/Down 滚动详情。Esc 通过现有 waterfall（瀑布式事件）取消。存在待处理请求时隐藏输入框，但不丢弃其草稿。
 
+安装实验性的自动审查层后，终端将其显示为 **Auto**。Auto 不使用沙箱，并在执行工具调用前由同一模型进行审查，受信任的工具除外。采用 `ask` 策略时，由你决定是否单次允许被拒绝的调用。采用 `never` 时，拒绝为最终决定。
+
 ### Smart approval
 
 `/auto-approve smart` 选择共享的同模型审阅器；`/auto-approve manual` 恢复普通的工作区审批。`/auto-approve status` 报告当前生效的模式，`/auto-approve history` 显示已记录的决定。状态栏报告审阅器活动；`/permissions` 显示权威结果，包括回退到人工和取消。本包以默认限制挂载审阅器，保持 `run_code` 仅限人工审批，并把 `plugin_manager` 列入 `escalatingTools`；会话在显式切换前保持手动审批。确切范围、额外 token 用量和单次调用升权语义见 [Smart approval](../../interaction/smart-approval/README.zh.md)。计划审阅仍然是交互式的。

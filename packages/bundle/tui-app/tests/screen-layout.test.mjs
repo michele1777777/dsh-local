@@ -567,6 +567,20 @@ test('the permissions panel: the preset as a filled label and the requests as a 
   assert.match(inspectorRows(fixture(), 'permissions', [], 100).map(textOfRow).join('\n'), /^Recent requests {3}latest 50 +none$/mu)
 })
 
+test('the permissions panel describes Auto and the current approval policy', () => {
+  const projections = { ...fixture().projections, permissions: { currentValue: 'auto' } }
+  for (const [approvalPolicy, outcome] of [
+    ['ask', 'Denied calls need your approval.'],
+    ['never', 'Denials are final.'],
+  ]) {
+    const rows = inspectorRows(fixture({ projections, approvalPolicy }), 'permissions', [], 42)
+    assert.match(textOfRow(rows[0]), new RegExp(`Preset +Auto +policy ${approvalPolicy}$`, 'u'))
+    const text = rows.slice(1).map(line => textOfRow(line).trimEnd()).join(' ')
+    assert.ok(text.includes(`Trusted tools skip review. ${outcome}`))
+    assert.match(text, /Use \/permission to change the current session preset\./u)
+  }
+})
+
 test('the context panel shows the figures as meters and keeps the explanations after them', () => {
   const all = inspectorRows(fixture(), 'context', [], 100).map(textOfRow)
   assert.match(all[0], /^Authentication & tests {3}\/workspace\/harness · standard · deepseek\/reasoner · effort high$/u)

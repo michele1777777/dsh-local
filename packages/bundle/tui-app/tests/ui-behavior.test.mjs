@@ -141,7 +141,7 @@ test('every permission preset other than the default is named in the status line
     try {
       // Plain text among the muted entries; only full access keeps a warning colour.
       const named = h.rows().at(-1).spans.find(span => span.action?.kind === 'open-permissions')
-      assert.equal(named?.text, preset)
+      assert.equal(named?.text, preset === 'auto' ? 'Auto' : preset)
       assert.equal(named?.tone, preset === 'danger-full-access' ? 'warning' : 'muted')
       assert.doesNotMatch(h.text(), /permissions:/)
       const y = h.rows().findIndex(row => row.spans.some(span => span.action?.kind === 'open-permissions'))

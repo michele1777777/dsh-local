@@ -104,7 +104,7 @@ for (const width of [28, 40, 80, 120]) test(`real Ink paints the one-row status 
   state.transcript.workStartedAt = 1000
   const rows = [statusRow(state, width, 0, 41000)]
   const painted = safeText(renderToString(createElement(Screen, { rows, width, theme: 'mono' }), { columns: width + 1 }))
-  assert.match(painted, / · {1,2}auto/)
+  assert.match(painted, / · {1,2}Auto/)
   assert.doesNotMatch(painted, /permissions:/)
   // The timer leaves before the context bar and numbers do.
   if (width >= 80) assert.match(painted, /40s/)
