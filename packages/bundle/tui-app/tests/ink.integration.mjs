@@ -8,7 +8,7 @@ import { createDocumentRenderer, itemRows } from '../src/document.ts'
 import { fitScreen, approvalDetails, approvalControls, panelLayout } from '../src/screen.ts'
 import { widthOf } from '../src/rich-text.ts'
 import { safeText } from '../src/terminal.ts'
-import { conversation, approval } from './fixtures.mjs'
+import { conversation, approval, tool } from './fixtures.mjs'
 for (const width of [29,40,80,120]) test(`real Ink paints complete document rows at ${width} columns`, () => {
   const rows=conversation().flatMap(item=>itemRows(item,{width,expanded:true,overrides:{}}))
   const rendered=safeText(renderToString(createElement(Screen,{rows,width,theme:'mono'}),{columns:width+1}))
@@ -36,6 +36,24 @@ test('real Ink paints the answer dot beside the first visible line after a thoug
   assert.deepEqual(paint(`${prefix}The verification finished.\n\nAll checks passed without errors.`, true), [
     '  ✦ Thought · 1 line', '', '• The verification finished.', '', '  All checks passed without', '  errors.',
   ])
+})
+
+test('real Ink keeps the spacing before a tool call and the blank lines inside the answer', () => {
+  const width = 62
+  const renderer = createDocumentRenderer()
+  const options = { width, terminalRows: 30, expanded: false, overrides: {} }
+  const answer = { kind: 'assistant', id: 'answer', reasoning: '', settled: true }
+  const paint = text => {
+    const rows = renderer.render([{ ...answer, text }, tool()], options)
+    const frame = renderToString(createElement(Screen, { rows, width, theme: 'mono' }), { columns: width + 1 })
+    const lines = safeText(frame).split('\n').map(line => line.trimEnd())
+    return lines.slice(0, lines.findIndex(line => line.startsWith('  • Run')))
+  }
+
+  assert.deepEqual(paint('First paragraph.\n\nSecond paragraph.\r\n  \r\n'), [
+    '• First paragraph.', '', '  Second paragraph.', '',
+  ])
+  assert.deepEqual(paint('```txt\ncode\n\n```\n\n').slice(1), ['  code', '', ''])
 })
 
 test('real Ink retains permission actions at the smallest supported size', () => {

@@ -491,10 +491,13 @@ export function itemRows(unsafe: Item, options: DocumentOptions): Row[] {
     if (item.text !== '') {
       const original = unsafe.kind === 'assistant' ? unsafe.text : item.text
       const answer = options.streaming?.markdown.rows(item.id, original, content) ?? markdownRows(original, content)
-      const firstVisible = answer.findIndex(line => textOfRow(line).trim() !== '')
+      // A blank row inside a code block still paints the band's background.
+      const visible = (line: Row): boolean => line.spans.some(part => part.background !== undefined || part.text.trim() !== '')
+      const firstVisible = answer.findIndex(visible)
       if (firstVisible >= 0) {
+        const lastVisible = answer.findLastIndex(visible)
         if (rows.length > 1 && (options.terminalRows ?? 0) >= ROOMY_TERMINAL_ROWS) rows.push(row(''))
-        rows.push(...indent(answer.slice(firstVisible), span(`${STATUS_DOT} `, 'accent')))
+        rows.push(...indent(answer.slice(firstVisible, lastVisible + 1), span(`${STATUS_DOT} `, 'accent')))
       }
     }
     if (item.reasoning === '' && item.text === '' && !item.settled) {
