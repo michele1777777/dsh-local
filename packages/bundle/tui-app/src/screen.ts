@@ -523,42 +523,44 @@ export function filterPicker(picker: Picker | undefined, query: string): PickerR
 }
 
 /**
- * A full picker screen: title rule, search line, entries and controls.
+ * A full picker screen: title rule, search line, entries and controls. Labels, details and controls wrap to the width and
+ * are never cut; the entries around the one in focus that fit show.
  * @param picker - the open picker.
  * @param rows - the filtered rows.
  * @param search - the search draft.
  * @param index - the selected row.
  * @param width - cells available.
- * @param height - rows available; entries take two rows each when space allows.
+ * @param height - rows available; entries show their detail under the label when space allows.
  * @param status - an optional muted line under the search.
  * @returns exactly `height` rows or fewer.
  */
 export function pickerLayout(picker: Picker, rows: readonly PickerRow[], search: EditorState,
   index: number, width: number, height: number, status?: string): Row[] {
   const output = [panelTitle(width, picker.title), ...composerRows(search, width, 1, 'Type to search…').slice(1)]
-  if (status !== undefined) output.push(fitRow(row(span(status, 'muted')), width))
-  const footer = picker.kind === 'sessions' ? 2 : 1
-  const itemHeight = width >= 55 && height >= 10 ? 2 : 1
-  const visible = windowAround(rows, index, Math.max(1, Math.floor((height - output.length - footer) / itemHeight)))
-  for (let position = 0; position < visible.items.length; position++) {
-    const entry = visible.items[position]
-    if (entry === undefined) continue
-    const selected = position + visible.offset === index
+  if (status !== undefined) output.push(...wrapProse(row(span(status, 'muted')), width))
+  const chosen = rows[index]
+  const button = chosen === undefined ? [] : [{ ...span(picker.kind === 'sessions' ? '[ Resume ] ' : picker.kind === 'skills' ? '[ Use ] ' : '[ Choose ] ', 'accent', true),
+    action: { kind: 'picker-confirm' as const, id: chosen.id } }]
+  const controls = wrapProse(row(...button, span(`${rows.length === 0 ? 0 : index + 1}/${rows.length} · ↑↓ · ${picker.kind === 'skills' ? 'Enter use' : 'Enter choose'} · Esc close`, 'footer')), width)
+  if (picker.kind === 'sessions') controls.push(...wrapProse(row(span(`Tab · ${picker.all ? 'all directories' : 'current directory'} — toggle scope`, 'footer')), width))
+  const detailed = width >= 55 && height >= 10
+  const blocks = rows.map((entry, at) => {
+    const selected = at === index
     const action = { kind: 'picker-select' as const, id: entry.id }
-    const value = fitRow(row(span(`${selected ? '❯' : ' '} ${entry.current ? '● ' : '  '}`, 'accent'), span(entry.label, 'text', selected), span(entry.current ? '  current' : '', 'muted')), width)
-    // The row in focus stands on the selection background, its detail row included.
-    const painted = (line: Row): Row => selected ? onBackground(line, width, 'select') : line
-    output.push({ ...painted(value), spans: painted(value).spans.map(part => ({ ...part, action })) })
-    if (itemHeight === 2) {
-      const detail = painted(fitRow(row(span(`    ${entry.detail}`, 'muted')), width))
-      output.push({ ...detail, spans: detail.spans.map(part => ({ ...part, action })) })
-    }
-  }
-  if (rows.length === 0) output.push(fitRow(row(span('No matches. Change the search or press Esc.', 'muted')), width))
-  while (output.length < height - footer) output.push(row(''))
-  const controls = [fitRow(row(...(rows[index] === undefined ? [] : [{ ...span(picker.kind === 'sessions' ? '[ Resume ] ' : picker.kind === 'skills' ? '[ Use ] ' : '[ Choose ] ', 'accent', true), action: { kind: 'picker-confirm' as const, id: rows[index].id } }]), span(`${rows.length === 0 ? 0 : index + 1}/${rows.length} · ↑↓ · ${picker.kind === 'skills' ? 'Enter use' : 'Enter choose'} · Esc close`, 'footer')), width)]
-  if (picker.kind === 'sessions') controls.push(fitRow(row(span(`Tab · ${picker.all ? 'all directories' : 'current directory'} — toggle scope`, 'footer')), width))
-  return [...output.slice(0, Math.max(0, height - footer)), ...controls].slice(0, height)
+    const lead = span(`${selected ? '❯' : ' '} ${entry.current === true ? '● ' : '  '}`, 'accent')
+    const head = optionRows([lead], span(safeText(entry.label), 'text', selected), '', 0, width, entry.current === true ? [span('current', 'muted')] : [])
+    const detail = detailed && entry.detail.trim() !== '' ? wrapProse(row(span(safeText(entry.detail).replace(/\s+/gu, ' ').trim(), 'muted')), Math.max(1, width - 4))
+      .map(line => row(span('    '), ...line.spans)) : []
+    // The row in focus stands on the selection background, its detail rows included.
+    return [...head, ...detail].map((line) => {
+      const painted = selected ? onBackground(line, width, 'select') : line
+      return { ...painted, spans: painted.spans.map(part => ({ ...part, action })) }
+    })
+  })
+  output.push(...windowOptions(blocks, index, Math.max(1, height - output.length - controls.length)))
+  if (rows.length === 0) output.push(...wrapProse(row(span('No matches. Change the search or press Esc.', 'muted')), width))
+  while (output.length < height - controls.length) output.push(row(''))
+  return [...output.slice(0, Math.max(0, height - controls.length)), ...controls].slice(0, height)
 }
 
 /**
@@ -601,12 +603,96 @@ export function panelLayout(title: string, details: readonly Row[], controls: re
 /** One key a card or panel lists, with what it does; a third entry makes both words a click target. */
 type KeyHint = readonly [key: string, does: string, click?: UiAction]
 
-/** Key hints in greys: each key in the text tone before its action, muted, with faint separators. */
+/** One key hint: the key in the text tone before its action, muted; a click target makes both words run it. */
+function keyHint([key, does, click]: KeyHint): Span[] {
+  const own = (part: Span): Span => click === undefined ? part : { ...part, action: click }
+  return [own(span(key, 'text')), own(span(` ${does}`, 'muted'))]
+}
+
+/** Key hints in greys, each from {@link keyHint}, with faint separators. */
 function keyHints(hints: readonly KeyHint[]): Span[] {
-  return hints.flatMap(([key, does, click], index) => {
-    const own = (part: Span): Span => click === undefined ? part : { ...part, action: click }
-    return [...index === 0 ? [] : [span(' · ', 'comment')], own(span(key, 'text')), own(span(` ${does}`, 'muted'))]
+  return hints.flatMap((hint, index) => [...index === 0 ? [] : [span(' · ', 'comment')], ...keyHint(hint)])
+}
+
+/**
+ * Key hints on as many rows as `width` needs: whole hints fill each row and the next hint starts a new one, so no hint is
+ * cut; a single hint wider than a row wraps between words.
+ * @param hints - the hints in order.
+ * @param width - cells available.
+ * @param trailing - spans that follow the last hint, kept beside it when they fit.
+ * @returns the hint rows; one row when everything fits.
+ */
+function hintRows(hints: readonly KeyHint[], width: number, trailing: readonly Span[] = []): Row[] {
+  const groups = hints.map(keyHint)
+  if (trailing.length > 0) groups.push([...trailing])
+  const output: Row[] = []
+  let line: Span[] = []
+  for (const group of groups) {
+    const separated = line.length === 0 || group === groups.at(-1) && trailing.length > 0 ? group : [span(' · ', 'comment'), ...group]
+    if (line.length > 0 && widthOf(textOfRow(row(...line, ...separated))) > width) {
+      output.push(row(...line))
+      line = [...group]
+    } else line.push(...separated)
+  }
+  if (line.length > 0) output.push(row(...line))
+  return output.flatMap(value => wrapProse(value, Math.max(1, width)))
+}
+
+/**
+ * One choice in a card: the lead (focus mark, number or current mark), then the label and its description, both wrapped and
+ * never cut. The description stands in a column beside a label column of `labelCells` cells while it keeps
+ * {@link OPTION_DESCRIPTION_MIN_CELLS}; otherwise it follows the label on the rows below. Rows after the first are indented
+ * under the label, and `end` stays at the right edge of the first row.
+ * @param lead - the spans before the label.
+ * @param label - the label span.
+ * @param description - the description; whitespace runs become one space.
+ * @param labelCells - the label column width.
+ * @param width - cells available.
+ * @param end - spans at the right end of the first row.
+ * @returns the rows, each `width` cells or narrower.
+ */
+function optionRows(lead: readonly Span[], label: Span, description: string, labelCells: number, width: number,
+  end: readonly Span[] = []): Row[] {
+  const leadCells = widthOf(textOfRow(row(...lead))), endCells = end.length === 0 ? 0 : widthOf(textOfRow(row(...end))) + 1
+  const room = Math.max(1, width - leadCells - endCells)
+  const text = safeText(description).replace(/\s+/gu, ' ').trim()
+  const pad = span(' '.repeat(leadCells))
+  const finish = (lines: readonly Row[]): Row[] => lines.map((line, index) => {
+    const spans = [...index === 0 ? lead : [pad], ...line.spans]
+    if (index !== 0 || end.length === 0) return row(...spans)
+    return row(...spans, span(' '.repeat(Math.max(1, width - widthOf(textOfRow(row(...spans))) - endCells + 1))), ...end)
   })
+  const column = Math.min(labelCells, room)
+  const beside = room - column - 2
+  if (text !== '' && beside >= OPTION_DESCRIPTION_MIN_CELLS) {
+    const labels = wrapProse(row(label), column), notes = wrapProse(row(span(text, 'description')), beside)
+    return finish(Array.from({ length: Math.max(labels.length, notes.length) }, (_, at) => {
+      const left = labels[at] ?? row('')
+      return row(...left.spans, span(' '.repeat(column - widthOf(textOfRow(left)) + 2)), ...notes[at]?.spans ?? [])
+    }))
+  }
+  const labels = wrapProse(row(label), room)
+  return finish(text === '' ? labels : [...labels, ...wrapProse(row(span(text, 'description')), Math.max(1, width - leadCells))])
+}
+
+/**
+ * The options around the one in focus that fit in `budget` rows, growing below and above it in turn; the option in focus
+ * always shows whole.
+ * @param blocks - the rows of each option.
+ * @param focus - the option in focus.
+ * @param budget - most rows to show.
+ * @returns the rows of the shown options in order.
+ */
+function windowOptions(blocks: readonly (readonly Row[])[], focus: number, budget: number): Row[] {
+  const at = Math.max(0, Math.min(blocks.length - 1, focus))
+  let start = at, end = at + 1, used = blocks[at]?.length ?? 0
+  for (let grew = true; grew;) {
+    grew = false
+    const below = blocks[end], above = blocks[start - 1]
+    if (below !== undefined && used + below.length <= budget) { used += below.length; end++; grew = true }
+    if (above !== undefined && used + above.length <= budget) { used += above.length; start--; grew = true }
+  }
+  return blocks.slice(start, end).flat()
 }
 
 /** Cells a card's borders and inner padding take from its width. */
@@ -687,7 +773,7 @@ export function approvalDetails(pending: PendingApproval, width: number, open?: 
   const fold = row(span(shown ? '▾ ' : '▸ ', 'muted'), span('Arguments', 'muted'),
     ...fields === undefined ? [] : [span(` · ${fields} ${fields === 1 ? 'field' : 'fields'}`, 'comment')])
   return [...band, ...placed, row(''),
-    ...wrapRow(row(span(pending.reason ?? 'The tool requests authorization for this invocation.', 'text')), width),
+    ...wrapProse(row(span(pending.reason ?? 'The tool requests authorization for this invocation.', 'text')), width),
     { ...fold, spans: fold.spans.map(part => ({ ...part, action: { kind: 'approval-arguments' as const } })) },
     ...shown ? indentRows(wrapRow(row(span(pending.detail ?? '(No arguments supplied by the tool)', 'muted')), Math.max(1, width - 2)), '  ', width) : []]
 }
@@ -710,7 +796,7 @@ export function goalControls(phase: string | undefined, width: number): Row[] {
 /**
  * The approval card's controls: Allow once and Reject, the current one filled in the warning tone, and the keys in greys,
  * whose `Enter confirm` is also the mouse confirm target. One row when it fits, without the arrow hint when only that
- * fits, otherwise the choice above the keys.
+ * fits, otherwise the choice above the keys, which wrap onto further rows rather than being cut.
  * @param width - cells available.
  * @param allowed - whether Allow once is the current choice.
  * @param count - pending approvals; above 1 the keys row shows it.
@@ -725,12 +811,13 @@ export function approvalControls(width: number, allowed: boolean, count: number)
   const hints: KeyHint[] = [['←→', 'choose'], ['Enter', 'confirm', { kind: 'approval-confirm' }], ['y', 'select allow'], ['n/Esc', 'reject'],
     ['a', 'arguments', { kind: 'approval-arguments' }]]
   const waiting = count > 1 ? [span(` · ${count} pending`, 'comment')] : []
-  const keys = row(...keyHints(hints), ...waiting)
   for (const shown of [hints, hints.slice(1)]) {
     const together = row(...choices.spans, span('    '), ...keyHints(shown), ...waiting)
     if (widthOf(textOfRow(together)) <= width) return [together]
   }
-  return [fitRow(choices, width), fitRow(keys, width)]
+  const stacked = widthOf(textOfRow(choices)) <= width ? [choices]
+    : [row(choice('Allow once', true)), row(choice('Reject', false))].map(value => fitRow(value, width))
+  return [...stacked, ...hintRows(hints, width, waiting)]
 }
 
 /**
@@ -749,16 +836,19 @@ export function questionDetails(pending: PendingQuestion, draft: QuestionDraft, 
     const block = blocks[index++]
     return { ...value, spans: value.spans.map(part => part.text === COPY_LABEL && block !== undefined ? { ...part, action: { kind: 'copy-text' as const, text: block.text, label: 'plan code' } } : part) }
   })
-  return [...wrapRow(row(span(question.question, 'text', true)), width), row(''), ...detail]
+  return [...wrapProse(row(span(question.question, 'text', true)), width), row(''), ...detail]
 }
 
-/** Most cells of the label column in a question's options and in a short picker; longer labels are cut. */
+/** Most cells of the label column in a question's options and in a short picker; longer labels wrap within it. */
 const OPTION_LABEL_CELLS = 28
+/** Fewest cells a description column keeps beside the labels; with less room it moves under its label. */
+const OPTION_DESCRIPTION_MIN_CELLS = 20
 
 /**
  * The current question's options, the custom answer and the keys. Each option has its number, which picks it, its label
- * and its description; the one in focus stands on the selection background across the row. The custom answer is a hint
- * row until Tab or typed text opens its composer. `Enter confirm` in the keys is also the mouse confirm target.
+ * and its description, wrapped to the width and never cut; the one in focus stands on the selection background across all
+ * of its rows. The options around the focus that fit in a third of `height` show. The custom answer is a hint row until Tab
+ * or typed text opens its composer. `Enter confirm` in the keys is also the mouse confirm target.
  * @param pending - the pending question set.
  * @param draft - the reader's progress.
  * @param width - cells available.
@@ -767,35 +857,30 @@ const OPTION_LABEL_CELLS = 28
  */
 export function questionControls(pending: PendingQuestion, draft: QuestionDraft, width: number, height: number): Row[] {
   const question = pending.questions[draft.index], options = question?.options ?? []
-  const visible = windowAround(options, draft.optionIndex, Math.max(1, Math.min(5, Math.floor(height / 4))))
   const labelCells = Math.min(OPTION_LABEL_CELLS, Math.max(0, ...options.map(option => widthOf(safeText(option.label)))))
-  const output: Row[] = []
-  for (let position = 0; position < visible.items.length; position++) {
-    const option = visible.items[position]
-    if (option === undefined) continue
-    const at = position + visible.offset
+  const blocks = options.map((option, at) => {
     const focused = !draft.customMode && at === draft.optionIndex
     // Enter answers a single-select question with the option in focus when none is picked, so that one shows as picked.
     const picked = draft.selected.includes(option.label) || (focused && question?.multiSelect !== true && draft.selected.length === 0)
-    const label = fitRow(row(span(safeText(option.label), 'text', focused)), labelCells)
-    const line = fitRow(row(span(' '), span(picked ? '●' : '○', picked || focused ? 'accent' : 'comment'), span(` ${at + 1}  `, 'comment'),
-      ...label.spans, span(' '.repeat(labelCells - widthOf(textOfRow(label)) + 2)),
-      span(safeText(option.description ?? '').replace(/\s+/gu, ' '), 'description')), width)
-    const painted = focused ? onBackground(line, width, 'select') : line
-    output.push({ ...painted, spans: painted.spans.map(part => ({ ...part, action: { kind: 'question-option' as const, index: at } })) })
-  }
+    const lead = [span(' '), span(picked ? '●' : '○', picked || focused ? 'accent' : 'comment'), span(` ${at + 1}  `, 'comment')]
+    return optionRows(lead, span(safeText(option.label), 'text', focused), option.description ?? '', labelCells, width).map((line) => {
+      const painted = focused ? onBackground(line, width, 'select') : line
+      return { ...painted, spans: painted.spans.map(part => ({ ...part, action: { kind: 'question-option' as const, index: at } })) }
+    })
+  })
+  const output = windowOptions(blocks, draft.optionIndex, Math.max(1, Math.floor(height / 3)))
   if (draft.customMode || draft.custom.text !== '') {
     output.push(...composerRows(draft.custom, width, Math.max(1, Math.min(3, Math.floor(height / 6))), 'Type your answer…', !draft.customMode).slice(1))
-  } else output.push(fitRow(row(span(' ✎  ', 'comment'), span('Tab', 'text'), span('  Write your own answer', 'muted')), width))
+  } else output.push(...wrapProse(row(span(' ✎  ', 'comment'), span('Tab', 'text'), span('  Write your own answer', 'muted')), width))
   const keys: KeyHint[] = [...options.length === 0 ? [] : [['↑↓', 'choose'], [options.length === 1 ? '1' : `1–${Math.min(9, options.length)}`, 'pick'],
     ['Space', question?.multiSelect === true ? 'toggle' : 'select']] satisfies KeyHint[],
   ['Enter', 'confirm', { kind: 'question-confirm' }], ['Tab', draft.customMode ? 'options' : 'custom'], ['Esc', 'cancel']]
-  output.push(row(''), fitRow(row(...keyHints(keys)), width))
+  output.push(row(''), ...hintRows(keys, width))
   return output
 }
 
 /** Most rows a short picker lists in its card before it scrolls. */
-const PICKER_CARD_ROWS = 8
+const PICKER_CARD_ROWS = 12
 
 /**
  * Whether a picker is short enough for a card in the composer's place; sessions and skills keep the whole screen.
@@ -806,7 +891,8 @@ export function shortPicker(picker: Picker): boolean { return picker.kind !== 's
 
 /**
  * A short picker as a card in the composer's place: the filter once text is typed, then the rows, the current one marked
- * and the one in focus on the selection background, and the keys. `Enter select` is also the mouse confirm target.
+ * and the one in focus on the selection background, and the keys. Labels and details wrap to the width and are never cut.
+ * `Enter select` is also the mouse confirm target.
  * @param picker - the open picker.
  * @param rows - its rows after filtering.
  * @param search - the filter as typed.
@@ -820,23 +906,22 @@ export function pickerCard(picker: Picker, rows: readonly PickerRow[], search: E
   const inner = cardInner(width), body: Row[] = []
   const filter = wrapEditor(search.text, Number.MAX_SAFE_INTEGER)[0]
   if (filter !== undefined && search.text !== '') body.push(fitRow(row(span('⌕ ', 'accent', true), ...draftLine(filter, search.cursor, undefined)), inner))
-  const visible = windowAround(rows, index, Math.max(1, Math.min(PICKER_CARD_ROWS, height - body.length - 4)))
-  const labelCells = Math.min(OPTION_LABEL_CELLS, Math.max(0, ...rows.map(entry => widthOf(safeText(entry.label)))))
-  for (let position = 0; position < visible.items.length; position++) {
-    const entry = visible.items[position]
-    if (entry === undefined) continue
-    const focused = position + visible.offset === index, end = entry.current === true ? 'current ' : ''
-    const label = fitRow(row(span(safeText(entry.label), 'text', focused)), labelCells)
-    const line = fitRow(row(span(focused ? '❯ ' : '  ', 'accent', true), span(entry.current === true ? '● ' : '  ', 'accent'), ...label.spans,
-      span(' '.repeat(labelCells - widthOf(textOfRow(label)) + 2)), span(safeText(entry.detail).replace(/\s+/gu, ' '), 'description')), Math.max(0, inner - widthOf(end) - 1))
-    const whole = row(...line.spans, span(' '.repeat(inner - widthOf(textOfRow(line)) - widthOf(end))), span(end, 'comment'))
-    const painted = focused ? onBackground(whole, inner, 'select') : whole
-    body.push({ ...painted, spans: painted.spans.map(part => ({ ...part, action: { kind: 'picker-select' as const, id: entry.id } })) })
-  }
-  if (rows.length === 0) body.push(fitRow(row(span('No matches. Change the filter or press Esc.', 'muted')), inner))
   const chosen = rows[index]
-  body.push(row(''), fitRow(row(...keyHints([['↑↓', 'choose'], chosen === undefined ? ['Enter', 'select'] : ['Enter', 'select', { kind: 'picker-confirm', id: chosen.id }],
-    ['type', 'to filter'], ['Esc', 'close']])), inner))
+  const keys = hintRows([['↑↓', 'choose'], chosen === undefined ? ['Enter', 'select'] : ['Enter', 'select', { kind: 'picker-confirm', id: chosen.id }],
+    ['type', 'to filter'], ['Esc', 'close']], inner)
+  const labelCells = Math.min(OPTION_LABEL_CELLS, Math.max(0, ...rows.map(entry => widthOf(safeText(entry.label)))))
+  const blocks = rows.map((entry, at) => {
+    const focused = at === index
+    const lead = [span(focused ? '❯ ' : '  ', 'accent', true), span(entry.current === true ? '● ' : '  ', 'accent')]
+    const end = entry.current === true ? [span('current', 'comment')] : []
+    return optionRows(lead, span(safeText(entry.label), 'text', focused), entry.detail, labelCells, inner, end).map((line) => {
+      const painted = focused ? onBackground(line, inner, 'select') : line
+      return { ...painted, spans: painted.spans.map(part => ({ ...part, action: { kind: 'picker-select' as const, id: entry.id } })) }
+    })
+  })
+  body.push(...windowOptions(blocks, index, Math.max(1, Math.min(PICKER_CARD_ROWS, height - body.length - keys.length - 3))))
+  if (rows.length === 0) body.push(...wrapProse(row(span('No matches. Change the filter or press Esc.', 'muted')), inner))
+  body.push(row(''), ...keys)
   return cardLayout(picker.title, rows.length === 0 ? '' : `${index + 1} of ${rows.length}`, [], body, 'accent', width, height, 0).rows
 }
 

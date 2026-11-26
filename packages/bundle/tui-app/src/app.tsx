@@ -186,6 +186,8 @@ export function App({ store, controller, terminal, animations }: {
   const [panelOffset, setPanelOffset] = useState(0)
   // Page size and last offset of the panel last painted; key and wheel scrolling stay inside it.
   const panelFrame = useRef({ page: 1, maximum: 0 })
+  // Conversation rows above the card last painted in the composer's place, and the screen row where the card starts.
+  const cardFrame = useRef<{ conversation: number; cardY: number } | undefined>(undefined)
   const scrollPanel = (delta: number): void => {
     setPanelOffset((o) => {
       const maximum = panelFrame.current.maximum
@@ -494,6 +496,11 @@ export function App({ store, controller, terminal, animations }: {
     setAnchor(next)
   }
   const scrollDocument = (delta: number): void => { moveViewport(scrollBy(docRows, viewportHeight, anchor, delta)) }
+  /** Scroll the conversation shown above a card, whose height differs from the composer's viewport. */
+  const scrollAboveCard = (delta: number): void => {
+    const frame = cardFrame.current
+    if (frame !== undefined) setAnchor(scrollBy(docRows, Math.max(1, frame.conversation), anchor, delta))
+  }
 
   const choosePickerRow = (chosen: PickerRow): void => {
     if (chosen.command !== undefined) { clearTransient(); void controller.runCommand(chosen.command).catch(controller.report); return }
@@ -700,16 +707,19 @@ export function App({ store, controller, terminal, animations }: {
   // Assemble the painted screen rows
   const paintedFrame = useMemo((): Row[] => {
     const pending = state.pending[0]
+    cardFrame.current = undefined
     // A request for a choice takes the composer's place as a card: the conversation stays above it and the status row
-    // below, so the reader still sees what the request is about.
+    // below, so the reader still sees what the request is about and can scroll through it.
     const cardHeight = Math.max(3, height - header.length - indicatorLines.length - foot.length)
     const inner = cardInner(width)
     const overComposer = (card: readonly Row[]): Row[] => {
       const room = Math.max(0, height - header.length - indicatorLines.length - card.length - foot.length)
-      const end = Math.min(docRows.length, currentTop + viewportHeight)
       // One blank row stays between the conversation and the card.
-      const above = visibleItems.length === 0 ? [] : docRows.slice(Math.max(0, end - (room - 1)), end)
+      const conversation = Math.max(0, room - 1)
+      const top = topOf(docRows, conversation, anchor)
+      const above = visibleItems.length === 0 ? [] : docRows.slice(top, top + conversation)
       while (above.length < room) above.push(row(''))
+      cardFrame.current = { conversation, cardY: header.length + indicatorLines.length + room }
       return fitScreen([...header, ...indicatorLines, ...above, ...card, ...foot], width, height)
     }
     if (pending?.kind === 'approval') {
@@ -810,7 +820,7 @@ export function App({ store, controller, terminal, animations }: {
     ], width, height)
   }, [
     state, width, height, approvalAllowed, approvalArguments, panelOffset, foot, qDraft, browser, pickerSearch, pickerIndex,
-    allCommands, hasStickyHeader, activePromptMark, visibleItems, marks, tick, docRows, currentTop, animations, welcomeStart,
+    allCommands, hasStickyHeader, activePromptMark, visibleItems, marks, tick, docRows, currentTop, anchor, animations, welcomeStart,
     viewportHeight, searchMode, searchQuery.text, hasScrollBar, linesAboveBottom, header, indicatorLines, selection, effectiveSelection,
     transcriptHits, searchHitIndex, keyRows, noteRows, compRows, cmdPopupRows, bottomRule, gap,
   ])
@@ -932,6 +942,12 @@ export function App({ store, controller, terminal, animations }: {
       if (state.mouse === false) return
       if (mouse.kind === 'wheel') {
         const step = mouse.ctrl ? Math.max(1, viewportHeight - 1) : WHEEL_ROWS
+        // Over the conversation above a card, or over a card with nothing of its own to scroll, the wheel moves the conversation.
+        const card = cardFrame.current
+        if (card !== undefined && (mouse.y < card.cardY || state.pending.length === 0 || panelFrame.current.maximum === 0)) {
+          scrollAboveCard(mouse.direction * (mouse.ctrl ? Math.max(1, card.conversation - 1) : WHEEL_ROWS))
+          return
+        }
         if (state.pending.length > 0 || (state.panel !== undefined && state.panel !== 'transcript')) {
           scrollPanel(mouse.direction * step)
           return
@@ -1014,8 +1030,21 @@ export function App({ store, controller, terminal, animations }: {
     // An error shown above the composer lasts until the next keystroke.
     if (state.composerError !== undefined) store.update((s) => { s.composerError = undefined })
 
-    // Pending Approval Dialog
+    // While a request waits, the conversation above its card still scrolls: Shift+Up/Down by a row, Ctrl+Home/End to its
+    // ends, and Page Up/Down by a page when the card has nothing of its own to scroll.
     const pending = state.pending[0]
+    const card = cardFrame.current
+    if (pending !== undefined && card !== undefined) {
+      if (key.shift && (key.upArrow || key.downArrow)) { scrollAboveCard(key.upArrow ? -1 : 1); return }
+      if (key.ctrl && key.home) { setAnchor(anchorAt(docRows, 0)); return }
+      if (key.ctrl && key.end) { setAnchor(null); return }
+      if ((key.pageUp || key.pageDown) && panelFrame.current.maximum === 0) {
+        scrollAboveCard((key.pageUp ? -1 : 1) * Math.max(1, card.conversation - 1))
+        return
+      }
+    }
+
+    // Pending Approval Dialog
     if (pending?.kind === 'approval') {
       if (key.pageUp) { scrollPanel(-panelFrame.current.page); return }
       if (key.pageDown) { scrollPanel(panelFrame.current.page); return }

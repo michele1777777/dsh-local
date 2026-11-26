@@ -382,8 +382,12 @@ test('the approval card: the command on a neutral band, folded arguments, and th
   const scrolled = cardLayout('! Permission required', 'bash', long, controls, 'warning', 100, 12, 1e6)
   assert.equal(scrolled.rows.length, 12)
   assert.match(text(scrolled.rows), /line-59/); assert.match(text(scrolled.rows), /of \d+ · PgUp\/PgDn scroll/); assert.match(text(scrolled.rows), /Allow once/)
-  // Narrow, the choice and the keys take one row each.
-  assert.equal(approvalControls(40, true, 2).length, 2)
+  // Narrow, the choice stands above the keys, which wrap between whole hints instead of being cut.
+  const narrow = approvalControls(40, true, 2)
+  assert.match(textOfRow(narrow[0]), /^ {2}Allow once {6}Reject {2}$/u)
+  assert.ok(narrow.length > 2)
+  assert.ok(narrow.every(value => widthOf(textOfRow(value)) <= 40 && !textOfRow(value).includes('…')), text(narrow))
+  assert.match(text(narrow).replaceAll('\n', ' · '), /←→ choose · Enter confirm · y select allow · n\/Esc reject · a arguments · {1,4}2 pending/u)
 })
 
 test('an approval takes the composer\'s place: the conversation stays above the card and the status row below it', async () => {
@@ -515,6 +519,63 @@ test('a question is a card in the composer\'s place: numbered options with descr
   } finally { h.dispose() }
 })
 
+test('question options and keys wrap to the card width instead of being cut', async () => {
+  const long = { ...question(), questions: [{ ...question().questions[0], options: [
+    { label: 'Approve the plan and start implementing right away', description: 'Proceed with the proposed implementation, running the focused tests after each step and reporting the results.' },
+    { label: 'Keep planning', description: 'Continue exploring before making changes.' }] }] }
+  const { h } = setup({ pending: [long] }, 60, 30)
+  try {
+    const card = lines(h).filter(value => value.startsWith('│'))
+    assert.ok(card.every(value => !value.includes('…')), card.join('\n'))
+    const flat = card.map(value => value.slice(1, -1).trim()).join(' ').replace(/\s+/gu, ' ')
+    assert.match(flat, /Approve the plan and .*start implementing.*right away/u)
+    assert.match(flat, /reporting the results\./u)
+    assert.match(flat, /Continue exploring before making changes\./u)
+    // Every row of the option in focus stands on the selection background; its continuation rows hang under the label.
+    const focused = h.rows().filter(value => value.spans.some(part => part.background === 'select'))
+    assert.ok(focused.length >= 3, focused.map(textOfRow).join('\n'))
+    assert.ok(focused.slice(1).every(value => /^│ {8}\S/u.test(textOfRow(value))), focused.map(textOfRow).join('\n'))
+    assert.ok(focused.every(value => value.spans.some(part => part.action?.kind === 'question-option' && part.action.index === 0)))
+    // Narrower still, the keys take more than one row and none is cut.
+    h.resize(40, 30); await h.flush()
+    const narrow = lines(h).filter(value => value.startsWith('│'))
+    assert.ok(narrow.every(value => !value.includes('…')), narrow.join('\n'))
+    for (const hint of ['↑↓ choose', '1–2 pick', 'Space select', 'Enter confirm', 'Tab custom', 'Esc cancel']) assert.ok(narrow.some(value => value.includes(hint)), hint)
+  } finally { h.dispose() }
+})
+
+test('a short picker wraps long details under its labels instead of cutting them', async () => {
+  const detail = 'Runs without a sandbox and reviews each tool call with the same model before it runs, except for trusted tools.'
+  const picker = { kind: 'permissions', title: 'Permission', rows: [{ id: 'auto', label: 'Auto', detail, current: true }, { id: 'ask', label: 'Ask', detail: 'Ask before every tool call.' }] }
+  const { h } = setup({ picker }, 50, 30)
+  try {
+    const card = lines(h).filter(value => value.startsWith('│'))
+    assert.ok(card.every(value => !value.includes('…')), card.join('\n'))
+    assert.match(card.join(' ').replace(/[│\s]+/gu, ' '), /Runs without a sandbox .* except for trusted tools\./u)
+    assert.ok(card.some(value => /^│ {2}❯ ● Auto {2}Runs .* current +│$/u.test(value)), card.join('\n'))
+  } finally { h.dispose() }
+})
+
+test('the conversation above a waiting card still scrolls with the wheel and Shift+Up/Down', async () => {
+  const transcript = fixture().transcript
+  transcript.items = Array.from({ length: 40 }, (_, i) => ({ kind: 'user', id: `user-${i}`, text: `LINE-${i}`, settled: true, queued: false }))
+  for (const pending of [approval(), question()]) {
+    const { h } = setup({ transcript, pending: [pending] })
+    try {
+      assert.match(h.text(), /LINE-39/)
+      for (let i = 0; i < 8; i++) await h.key('[<64;20;5M')
+      assert.doesNotMatch(h.text(), /LINE-39/)
+      assert.match(h.text(), pending.kind === 'approval' ? /Permission required/ : /Review implementation plan/)
+      for (let i = 0; i < 40; i++) await h.key('', { shift: true, downArrow: true })
+      assert.match(h.text(), /LINE-39/)
+      await h.key('', { ctrl: true, home: true })
+      assert.match(h.text(), /LINE-0\b/)
+      await h.key('', { ctrl: true, end: true })
+      assert.match(h.text(), /LINE-39/)
+    } finally { h.dispose() }
+  }
+})
+
 test('a short picker is a card in the composer\'s place; the conversation stays above it', async () => {
   const transcript = fixture().transcript; transcript.items = conversation()
   const picker = { kind: 'models', title: 'Model', rows: [{ id: 'a', label: 'deepseek/reasoner', detail: 'reasoning · 128k context', current: true },
@@ -602,6 +663,22 @@ test('help opens with a key table in sections, in two columns when wide, before 
   assert.ok(wide.every(value => !value.endsWith('…')))
   const narrow = inspectorRows(fixture(), 'help', [], 60).map(textOfRow)
   assert.deepEqual(narrow.slice(0, 3), ['Write', 'Enter                send', 'Alt+Enter · Ctrl+J   new line'])
+})
+
+test('the session and skill pickers wrap long labels and details instead of cutting them', async () => {
+  const detail = 'Reviews the current diff for correctness bugs, broken repository rules and cleanups, then reports findings ranked by severity.'
+  const picker = { kind: 'skills', title: 'Skills · 2 available', rows: [{ id: 'review', label: 'code-review-with-a-rather-long-skill-name', detail, draft: '/review ' },
+    { id: 'plan', label: 'plan', detail: 'Plan the change.', draft: '/plan ' }] }
+  const { h } = setup({ picker }, 60, 30)
+  try {
+    const all = lines(h)
+    assert.ok(all.slice(2).every(value => !value.includes('…')), all.join('\n'))
+    assert.match(all.join(' ').replace(/\s+/gu, ' '), /Reviews the current diff .* ranked by severity\./u)
+    const focused = h.rows().filter(value => value.spans.some(part => part.background === 'select'))
+    assert.ok(focused.length >= 3, focused.map(textOfRow).join('\n'))
+    assert.ok(focused.every(value => value.spans.some(part => part.action?.kind === 'picker-select' && part.action.id === 'review')))
+    assert.ok(all.some(value => value.includes('Plan the change.')))
+  } finally { h.dispose() }
 })
 
 test('a wide terminal sets the session preview beside the session list; a narrower one keeps it under the list', async () => {

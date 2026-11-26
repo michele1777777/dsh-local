@@ -74,38 +74,63 @@ function firstFigure(id: string, figures: number): number {
   return (hash >>> 0) % figures
 }
 
-/** Most rows of live reasoning shown under the Thinking scene. */
-const THINKING_TAIL = 2
+/** Most rows of live reasoning shown under the Thinking scene or mark. */
+const THINKING_TAIL = 4
+/** Fewest rows of live reasoning worth showing; with less room the tail is left out. */
+const THINKING_TAIL_MIN = 2
+/**
+ * Terminal rows outside the conversation while a thought streams: the header, the indicator row, the composer between its
+ * two rules, the status line and the prompt line at the top of the conversation. From {@link ROOMY_TERMINAL_ROWS} three
+ * blank rows join them.
+ */
+const CHROME_ROWS = 7, ROOMY_CHROME_ROWS = 3
 
 /**
- * The latest reasoning under the Thinking scene: its last {@link THINKING_TAIL} non-empty rows behind a dotted rail, muted
- * and italic, with a cursor after the last one.
+ * Rows of live reasoning that fit under a decoration of `decoration` rows: {@link THINKING_TAIL}, fewer on a short
+ * terminal, and none below {@link THINKING_TAIL_MIN}.
+ * @param terminalRows - terminal height; unknown keeps the full tail.
+ * @param decoration - rows of the label and the scene or mark above the tail.
+ * @returns the most tail rows to show.
  */
-function thinkingTail(lines: readonly Row[]): Row[] {
-  const kept = lines.filter(value => textOfRow(value).trim() !== '').slice(-THINKING_TAIL)
+function tailLimit(terminalRows: number | undefined, decoration: number): number {
+  if (terminalRows === undefined) return THINKING_TAIL
+  const chrome = CHROME_ROWS + (terminalRows >= ROOMY_TERMINAL_ROWS ? ROOMY_CHROME_ROWS : 0)
+  const room = Math.min(THINKING_TAIL, terminalRows - chrome - decoration)
+  return room >= THINKING_TAIL_MIN ? room : 0
+}
+
+/**
+ * The latest reasoning under the Thinking scene: its last `limit` non-empty rows behind a dotted rail, muted and italic,
+ * with a cursor after the last one.
+ */
+function thinkingTail(lines: readonly Row[], limit: number): Row[] {
+  if (limit <= 0) return []
+  const kept = lines.filter(value => textOfRow(value).trim() !== '').slice(-limit)
   return kept.map((line, index) => row(span('┊ ', 'comment'), ...line.spans.map((part): Span => ({ ...part, tone: 'muted', italic: true })),
     ...index === kept.length - 1 ? [span('▍', 'reasoning')] : []))
 }
 
 /**
  * Live Thinking or Waiting rows: the label, then the constellation scene under it across the whole width, the figure
- * centred and grey background stars on both sides, then the latest reasoning. The figure's name types itself out at the
- * right end of the label's row, before a star mark. A terminal shorter than {@link THINKING_SCENE_MIN_TERMINAL_ROWS} or
- * narrower than the scene gets the small mark beside the label instead; the open reasoning, a superseded segment and a
- * missing asset get the label alone.
+ * centred and grey background stars on both sides, then the latest reasoning, as many rows of it as {@link tailLimit}
+ * leaves. The figure's name types itself out at the right end of the label's row, before a star mark. A terminal shorter
+ * than {@link THINKING_SCENE_MIN_TERMINAL_ROWS} or narrower than the scene gets the small mark beside the label instead;
+ * the open reasoning, a superseded segment and a missing asset get the label alone.
  * @param label - the label row.
  * @param id - the item id, which picks the first constellation.
  * @param elapsedMs - time since the item started thinking.
  * @param content - cells inside the item margin.
  * @param options - the document options; `motion` false shows a still.
  * @param decorated - whether this label carries the decoration at all.
- * @param tail - the latest reasoning rows, shown under the decoration.
+ * @param reasoning - the reasoning rows, whose latest ones show under the decoration.
  * @returns the rows, before the margin.
  */
 function thinkingRows(label: Row, id: string, elapsedMs: number, content: number, options: DocumentOptions, decorated: boolean,
-  tail: readonly Row[] = []): Row[] {
+  reasoning: readonly Row[] = []): Row[] {
   const animations = options.animations
   if (!decorated || options.thinkingDecoration === false || animations === undefined) return wrapRow(label, content)
+  const withTail = (decoration: Row[]): Row[] =>
+    [...decoration, ...thinkingTail(reasoning, tailLimit(options.terminalRows, decoration.length))]
   const sky = animations.animation(THINKING_SCENE)
   if (sky !== undefined && (options.terminalRows ?? 0) >= THINKING_SCENE_MIN_TERMINAL_ROWS && content >= THINKING_SCENE.columns) {
     const figures = Math.max(1, Math.floor(sky.durationMs / CONSTELLATION_MS))
@@ -120,9 +145,9 @@ function thinkingRows(label: Row, id: string, elapsedMs: number, content: number
     const start = content - widthOf(name) - widthOf(mark)
     const top = caption === '' || start < used + GAP ? label
       : row(...label.spans, span(' '.repeat(start - used)), span(padText(caption, widthOf(name)), 'reasoning'), span(mark, 'comment'))
-    return [...wrapRow(top, content), ...scene, ...tail]
+    return withTail([...wrapRow(top, content), ...scene])
   }
-  return [...besideLabel(label, animations.frame(THINKING_MARK, options.motion === false ? 0 : elapsedMs), content), ...tail]
+  return withTail(besideLabel(label, animations.frame(THINKING_MARK, options.motion === false ? 0 : elapsedMs), content))
 }
 
 /** Every cell of `value` runs `action`. */
@@ -479,8 +504,8 @@ export function itemRows(unsafe: Item, options: DocumentOptions): Row[] {
         // Live, the label carries the Thinking scene; opening the reasoning replaces the scene with the text.
         const elapsed = item.reasoningStartedAt === undefined || options.now === undefined
           ? (options.tick ?? 0) * ANIMATION_TICK_MS : Math.max(0, options.now - item.reasoningStartedAt)
-        const tail = reasoningExpanded ? [] : thinkingTail(reasoningRows(Math.max(1, content - RAIL - 1)))
-        const decorated = thinkingRows(label, item.id, elapsed, content, options, !reasoningExpanded, tail)
+        const reasoning = reasoningExpanded ? [] : reasoningRows(Math.max(1, content - RAIL - 1))
+        const decorated = thinkingRows(label, item.id, elapsed, content, options, !reasoningExpanded, reasoning)
         rows.push(...indent(decorated.map(value => clickable(value, toggleAction))))
         if (reasoningExpanded) rows.push(...indent(indentRows(reasoningRows(Math.max(1, content - GAP)), ' '.repeat(GAP), content)))
       } else {

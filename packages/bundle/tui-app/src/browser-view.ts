@@ -3,7 +3,7 @@ import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
 import type { Picker, PickerRow } from './store.ts'
 import { filterPicker } from './screen.ts'
 import { mergeSessionSearch, type SessionSearch, type SessionPreview } from './session-browser.ts'
-import { row, span, wrapRow, type Row } from './rich-text.ts'
+import { row, span, wrapProse, wrapRow, type Row } from './rich-text.ts'
 /** Optional backend queries for the session picker; an absent query disables that feature. */
 export interface BrowserActions {
   searchSessions?: (query: string, signal: AbortSignal) => Promise<SessionSearch>
@@ -76,6 +76,6 @@ export function previewRows(value: { result?: SessionPreview; loading: boolean; 
   if (preview === undefined) return [row(span('Select a saved session to preview.', 'muted'))]
   return [ ...wrapRow(row(span(`${preview.messages} messages · ${preview.tools} tool calls`, 'accent', true)), width),
     ...wrapRow(row(span(preview.cwd, 'muted')), width), row(''), row(span('FIRST PROMPT', 'muted', true)),
-    ...wrapRow(row(preview.firstPrompt || '(no user text)'), width), row(''), row(span('LAST ANSWER', 'muted', true)),
-    ...wrapRow(row(preview.lastResponse || '(no assistant text)'), width) ]
+    ...wrapProse(row(preview.firstPrompt || '(no user text)'), width), row(''), row(span('LAST ANSWER', 'muted', true)),
+    ...wrapProse(row(preview.lastResponse || '(no assistant text)'), width) ]
 }

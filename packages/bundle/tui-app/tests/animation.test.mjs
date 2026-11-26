@@ -280,6 +280,11 @@ test('the Thinking scene sits under the live label, names its figure, and gives 
   const mark = animations.frame(THINKING_MARK, 12_000).map(textOfRow)
   const short = itemRows(live(), options({ terminalRows: 24 }))
   assert.deepEqual(screen(short).slice(1), [' '.repeat(label.length + 2) + mark[0], `${label}  ${mark[1]}`, ' '.repeat(label.length + 2) + mark[2], '  ┊ Looking at the code.▍'])
+  // Up to four rows of the latest reasoning follow the decoration, fewer on a shorter terminal and none without room for two.
+  const lengthy = { ...live(), reasoning: Array.from({ length: 8 }, (_, index) => `Step ${index}.`).join('\n') }
+  const tail = value => screen(value).filter(line => line.startsWith('  ┊ '))
+  assert.deepEqual(tail(itemRows(lengthy, options())), ['  ┊ Step 4.', '  ┊ Step 5.', '  ┊ Step 6.', '  ┊ Step 7.▍'])
+  assert.deepEqual([14, 13, 12, 11].map(terminalRows => tail(itemRows(lengthy, options({ terminalRows }))).length), [4, 3, 2, 0])
   // Too narrow for the scene and for label and mark on one row: the label wraps alone.
   const narrow = itemRows(live(), options({ width: 40 }))
   assert.doesNotMatch(screen(narrow).join('\n'), BRAILLE)
